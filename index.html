@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>极简书房</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"极简书房","short_name":"书房","description":"ISBN 扫码入库的极简书架","start_url":".","scope":".","display":"standalone","background_color":"%23fafaf7","theme_color":"%231a1a1a","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%2796%27 fill=%27%231a1a1a%27/%3E%3Ctext x=%2750%25%27 y=%2756%25%27 font-size=%27240%27 text-anchor=%27middle%27 dominant-baseline=%27middle%27 fill=%27%23fafaf7%27 font-family=%27serif%27%3E%E4%B9%A6%3C/text%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}'>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%2796%27 fill=%27%231a1a1a%27/%3E%3Ctext x=%2750%25%27 y=%2756%25%27 font-size=%27240%27 text-anchor=%27middle%27 dominant-baseline=%27middle%27 fill=%27%23fafaf7%27 font-family=%27serif%27%3E%E4%B9%A6%3C/text%3E%3C/svg%3E">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+         background:#fafaf7; color:#1a1a1a; max-width:640px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; font-weight:700; letter-spacing:2px; }
+  .sub { font-size:12px; color:#999; margin:4px 0 0; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #1a1a1a; padding-bottom:12px; }
+  #stat { font-size:12px; color:#666; white-space:nowrap; padding-bottom:2px; }
+
+  .bar { display:flex; gap:8px; margin:16px 0 8px; }
+  .bar input { flex:1; padding:10px 12px; border:1px solid #ccc; border-radius:4px; font-size:15px; background:#fff; min-width:0; }
+  button { cursor:pointer; border:1px solid #1a1a1a; background:#1a1a1a; color:#fff; border-radius:4px; padding:0 14px; font-size:14px; height:40px; white-space:nowrap; }
+  button.ghost { background:#fff; color:#1a1a1a; }
+  button:hover { opacity:.85; }
+
+  .obs { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 4px; }
+  .obs button { height:32px; font-size:13px; padding:0 12px; }
+  #obsStatus { font-size:12px; color:#2e7d32; }
+  #obsStatus.off { color:#999; }
+
+  #cloudForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
+  #cloudForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  #cloudForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
+  #cloudForm input.grow { flex:1; min-width:110px; }
+  #cloudForm .actions { display:flex; gap:8px; margin-top:6px; }
+  #cloudForm .actions button { height:36px; }
+  #form { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
+  #form .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  #form input, #form select { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
+  #form input.grow { flex:1; min-width:110px; }
+  #form .actions { display:flex; gap:8px; margin-top:6px; }
+  #form .actions button { height:36px; }
+  .hint { font-size:11px; color:#aaa; margin-top:6px; }
+
+  #scanBox { background:#000; border-radius:6px; overflow:hidden; margin:10px 0; position:relative; }
+  #scanBox video { width:100%; display:block; }
+  #scanBox .tip { position:absolute; left:0; right:0; top:12px; text-align:center; color:#fff; font-size:13px; text-shadow:0 1px 2px #000; }
+  #scanBox button { position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,.9); color:#000; border:none; height:34px; }
+
+  .filter { display:flex; gap:8px; margin:14px 0 10px; align-items:center; flex-wrap:wrap; }
+  .filter .seg { display:flex; border:1px solid #ccc; border-radius:4px; overflow:hidden; }
+  .filter .seg button { border:none; background:#fff; color:#666; height:32px; padding:0 12px; font-size:13px; }
+  .filter .seg button.on { background:#1a1a1a; color:#fff; }
+  .filter select, .filter input { padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; background:#fff; height:32px; }
+  .filter input { flex:1; min-width:90px; }
+
+  ul#list { list-style:none; }
+  li.book { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #e5e5dd; border-radius:6px; padding:10px 12px; margin-bottom:8px; }
+  li.book.done { opacity:.55; }
+  li.book.done .t { text-decoration:line-through; }
+  .toggle { width:30px; height:30px; min-width:30px; border-radius:50%; border:1.5px solid #1a1a1a; background:#fff; color:#1a1a1a; font-size:15px; line-height:1; padding:0; }
+  li.book.done .toggle { background:#1a1a1a; color:#fff; }
+  .info { flex:1; min-width:0; }
+  .t { font-size:15px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m { font-size:12px; color:#888; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .edit, .del { border:none; background:none; color:#aaa; font-size:13px; height:auto; padding:4px 6px; }
+  .del { font-size:18px; }
+  .edit:hover { color:#1a1a1a; } .del:hover { color:#c0392b; }
+  .empty { text-align:center; color:#bbb; padding:40px 0; font-size:14px; }
+
+  #msg { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#1a1a1a; color:#fff;
+         padding:8px 16px; border-radius:20px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; z-index:9; }
+  footer { margin-top:28px; font-size:11px; color:#bbb; line-height:1.8; }
+  footer a { color:#999; cursor:pointer; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>极简书房</h1>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.3</span></div>
+  </div>
+  <div style="text-align:right">
+    <div id="stat"></div>
+    <button id="btnInstall" class="ghost" hidden style="height:28px;font-size:12px;margin-top:4px">⇩ 安装为 App</button>
+  </div>
+</header>
+
+<div class="bar">
+  <input id="isbn" inputmode="numeric" autocomplete="off" placeholder="扫描枪对准此处，或输入 ISBN 回车">
+  <button id="btnQuery">查询</button>
+  <button id="btnScan" class="ghost">扫码</button>
+  <button id="btnPaste" class="ghost">粘贴</button>
+</div>
+
+<div class="obs">
+  <button id="btnObs" class="ghost">🔌 连接 Obsidian 库</button>
+  <button id="btnMd" class="ghost">⬇ 导出 MD</button>
+  <button id="btnJson" class="ghost">⇪ 导出数据</button>
+  <button id="btnImport" class="ghost">⇩ 导入数据</button>
+  <input type="file" id="fileImport" accept=".json,application/json" hidden>
+  <span id="obsStatus" class="off">未连接</span>
+</div>
+
+<div class="obs">
+  <button id="btnCloud" class="ghost">☁ 云同步设置</button>
+  <span id="cloudStatus" class="off">未设置</span>
+</div>
+
+<div id="cloudForm" hidden>
+  <div class="row"><input id="cAppId" class="grow" placeholder="AppID" style="width:100%"></div>
+  <div class="row"><input id="cAppKey" class="grow" placeholder="AppKey" style="width:100%"></div>
+  <div class="row">
+    <input id="cCode" class="grow" placeholder="同步码（自己起，如 myshelf）">
+    <input id="cPin" placeholder="密钥（4~8位）" inputmode="numeric" style="width:130px">
+  </div>
+  <div class="actions">
+    <button id="btnCloudSave">保存并连接</button>
+    <button id="btnCloudOff" class="ghost">断开</button>
+    <button id="btnCloudCancel" class="ghost">取消</button>
+  </div>
+  <div class="hint">没有账号？去 leancloud.cn 邮箱注册（国内直连）→ 创建应用（开发版免费）→ 控制台「设置 → 应用凭证」复制 AppID / AppKey</div>
+</div>
+
+<div id="scanBox" hidden>
+  <video id="video" playsinline muted></video>
+  <div class="tip">对准书本封底的 ISBN 条码</div>
+  <button id="btnStop">取消</button>
+</div>
+
+<div id="form" hidden>
+  <div class="row">
+    <input id="fTitle" class="grow" placeholder="书名 *" style="width:100%">
+  </div>
+  <div class="row">
+    <input id="fAuthor" class="grow" placeholder="作者">
+    <input id="fTranslator" class="grow" placeholder="译者">
+  </div>
+  <div class="row">
+    <input id="fYear" placeholder="出版年份" inputmode="numeric" style="width:110px">
+    <input id="fCategory" class="grow" list="catList" placeholder="标签（手填，如：小说）">
+    <datalist id="catList">
+      <option value="文学"></option><option value="小说"></option><option value="历史"></option>
+      <option value="哲学"></option><option value="社会科学"></option><option value="自然科学"></option>
+      <option value="计算机"></option><option value="经济"></option><option value="心理"></option>
+      <option value="传记"></option><option value="艺术"></option><option value="其他"></option>
+    </datalist>
+  </div>
+  <div class="row">
+    <select id="fStatus">
+      <option value="unread">未读</option>
+      <option value="read">已读</option>
+    </select>
+    <span style="font-size:12px;color:#999;align-self:center" id="fIsbnTip"></span>
+  </div>
+  <div class="actions">
+    <button id="btnSave">保存</button>
+    <button id="btnCancel" class="ghost">取消</button>
+  </div>
+  <div class="hint">保存后自动同步到 Obsidian（若已连接）</div>
+</div>
+
+<div class="filter">
+  <div class="seg">
+    <button data-s="all" class="on">全部</button>
+    <button data-s="unread">未读</button>
+    <button data-s="read">已读</button>
+  </div>
+  <select id="catSel"><option value="all">全部标签</option></select>
+  <input id="search" placeholder="搜索书名 / 作者">
+</div>
+
+<ul id="list"></ul>
+
+<footer>
+  数据保存在本浏览器；连接 Obsidian 后书架内容会实时写入你的库（每书一篇笔记 + 书架.md 总览），Obsidian 里改动不会被回读。<br>
+  摄像头扫码需 Chrome/Edge 且 https 访问；iPhone 请扫码后点「粘贴」；USB 扫码枪即插即用。
+</footer>
+
+<div id="msg"></div>
+
+<script>
+/* ================= 基础 ================= */
+var LS_KEY = 'minimal-library-v1';
+var books = [];
+try { books = JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch (e) { books = []; }
+var editingId = null, filterStatus = 'all', obsDir = null, syncTimer = null;
+var $ = function (id) { return document.getElementById(id); };
+
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(books)); scheduleSync(); scheduleCloudPush(); }
+function normISBN(s) { return (s || '').replace(/[^0-9Xx]/g, ''); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function ys(s) { return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
+function fmtDate(t) { try { return new Date(t).toISOString().slice(0, 10); } catch (e) { return ''; } }
+var msgTimer = null;
+function showMsg(t) {
+  var m = $('msg'); m.textContent = t; m.style.opacity = 1;
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(function () { m.style.opacity = 0; }, 2600);
+}
+
+/* ================= IndexedDB（保存 Obsidian 目录句柄） ================= */
+function idbOpen() { return new Promise(function (res, rej) {
+  var r = indexedDB.open('shelf-db', 1);
+  r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+  r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); };
+});}
+function idbSet(k, v) { return idbOpen().then(function (db) { return new Promise(function (res, rej) {
+  var t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k);
+  t.oncomplete = res; t.onerror = function () { rej(t.error); }; }); }); }
+function idbGet(k) { return idbOpen().then(function (db) { return new Promise(function (res, rej) {
+  var r = db.transaction('kv').objectStore('kv').get(k);
+  r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }); }
+
+/* ================= 云同步（LeanCloud） ================= */
+var cloudCfg = null;
+try { cloudCfg = JSON.parse(localStorage.getItem('shelf-cloud') || 'null'); } catch (e) { cloudCfg = null; }
+var lastSyncAt = 0;
+try { lastSyncAt = +(localStorage.getItem('shelf-sync-at') || 0); } catch (e) { lastSyncAt = 0; }
+var cloudDirty = false, cloudTimer = null, cloudPulling = false;
+
+function cloudBase() {
+  return 'https://' + cloudCfg.appId.slice(0, 8) + '.api.lncldapi.com/1.1/classes/ShelfState';
+}
+function cloudHeaders() {
+  return { 'X-LC-Id': cloudCfg.appId, 'X-LC-Key': cloudCfg.appKey, 'Content-Type': 'application/json' };
+}
+function updateCloudUI() {
+  var el = $('cloudStatus');
+  if (cloudCfg) {
+    el.textContent = '已连接 · ' + (lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString() + ' 同步' : '等待首次同步');
+    el.classList.remove('off');
+    $('btnCloud').textContent = '☁ 云同步已开';
+  } else {
+    el.textContent = '未设置'; el.classList.add('off');
+    $('btnCloud').textContent = '☁ 云同步设置';
+  }
+}
+function pullCloud() {
+  if (!cloudCfg || cloudPulling) return Promise.resolve();
+  cloudPulling = true;
+  var where = encodeURIComponent(JSON.stringify({ code: cloudCfg.code, pin: cloudCfg.pin }));
+  return fetch(cloudBase() + '?where=' + where, { headers: cloudHeaders() })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      if (!d.results || !d.results.length) {
+        // 云端还没有这份数据：把本地推上去
+        cloudDirty = true;
+        return pushCloud();
+      }
+      var obj = d.results[0];
+      var serverTime = Date.parse(obj.updatedAt) || 0;
+      if (serverTime > lastSyncAt) {
+        var incoming = JSON.parse(obj.data || '[]');
+        if (JSON.stringify(incoming) !== JSON.stringify(books.map(function (b) { var c = {}; for (var k in b) if (k !== '_md') c[k] = b[k]; return c; }))) {
+          var keepMd = {};
+          books.forEach(function (b) { if (b._md) keepMd[b.id] = b._md; });
+          books = incoming.map(function (b) { if (keepMd[b.id]) b._md = keepMd[b.id]; return b; });
+          localStorage.setItem(LS_KEY, JSON.stringify(books));
+          render();
+          if (obsDir) syncObsidian();
+          showMsg(cloudDirty ? '两端都有修改，已采用云端版本' : '已从云端更新');
+        }
+        cloudDirty = false;
+        lastSyncAt = serverTime;
+        localStorage.setItem('shelf-sync-at', String(serverTime));
+        updateCloudUI();
+      }
+    })
+    .catch(function (e) {
+      if (e && e.message && e.message.indexOf('HTTP 401') === 0) showMsg('云同步凭证错误，请检查 AppID / AppKey');
+      else if (e && e.message && e.message.indexOf('HTTP 403') === 0) showMsg('LeanCloud  class 权限不足，请在控制台允许客户端访问');
+    })
+    .then(function () { cloudPulling = false; });
+}
+function pushCloud() {
+  if (!cloudCfg || !cloudDirty) return Promise.resolve();
+  var clean = books.map(function (b) { var c = {}; for (var k in b) if (k !== '_md') c[k] = b[k]; return c; });
+  var body = JSON.stringify({ code: cloudCfg.code, pin: cloudCfg.pin, data: JSON.stringify(clean) });
+  var where = encodeURIComponent(JSON.stringify({ code: cloudCfg.code, pin: cloudCfg.pin }));
+  return fetch(cloudBase() + '?where=' + where, { headers: cloudHeaders() })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var req;
+      if (d.results && d.results.length) {
+        req = fetch(cloudBase() + '/' + d.results[0].objectId, { method: 'PUT', headers: cloudHeaders(), body: body });
+      } else {
+        req = fetch(cloudBase(), { method: 'POST', headers: cloudHeaders(), body: body });
+      }
+      return req.then(function (r) { return r.json(); });
+    })
+    .then(function (res) {
+      cloudDirty = false;
+      var t = Date.parse(res.updatedAt) || Date.now();
+      lastSyncAt = t;
+      localStorage.setItem('shelf-sync-at', String(t));
+      updateCloudUI();
+    })
+    .catch(function () {});
+}
+function scheduleCloudPush() {
+  if (!cloudCfg) return;
+  cloudDirty = true;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(pushCloud, 4000);
+}
+
+$('btnCloud').onclick = function () {
+  $('cloudForm').hidden = !$('cloudForm').hidden;
+  if (cloudCfg) {
+    $('cAppId').value = cloudCfg.appId; $('cAppKey').value = cloudCfg.appKey;
+    $('cCode').value = cloudCfg.code; $('cPin').value = cloudCfg.pin;
+  }
+};
+$('btnCloudCancel').onclick = function () { $('cloudForm').hidden = true; };
+$('btnCloudSave').onclick = function () {
+  var cfg = {
+    appId: $('cAppId').value.trim(), appKey: $('cAppKey').value.trim(),
+    code: $('cCode').value.trim(), pin: $('cPin').value.trim()
+  };
+  if (!cfg.appId || !cfg.appKey || !cfg.code || !cfg.pin) { showMsg('四项都要填'); return; }
+  cloudCfg = cfg;
+  localStorage.setItem('shelf-cloud', JSON.stringify(cfg));
+  cloudDirty = true;
+  $('cloudForm').hidden = true;
+  updateCloudUI();
+  showMsg('正在连接云端…');
+  pushCloud().then(pullCloud);
+};
+$('btnCloudOff').onclick = function () {
+  cloudCfg = null; cloudDirty = false;
+  localStorage.removeItem('shelf-cloud');
+  $('cloudForm').hidden = true;
+  updateCloudUI();
+  showMsg('已断开云同步（本地数据保留）');
+};
+
+/* ================= Obsidian 同步 ================= */
+function safeName(s) {
+  var n = (s || '未命名').replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, '').trim().slice(0, 80);
+  return n || '未命名';
+}
+function bookMd(b) {
+  var tagNames = [b.category, b.status === 'read' ? '已读' : '未读'].filter(Boolean);
+  var tagLine = tagNames.map(function (t) { return '#' + t; }).join(' ');
+  return ['---',
+    'isbn: ' + (b.isbn ? '"' + ys(b.isbn) + '"' : '""'),
+    'title: "' + ys(b.title) + '"',
+    'author: "' + ys(b.author) + '"',
+    'translator: "' + ys(b.translator) + '"',
+    'year: ' + (b.year ? '"' + ys(b.year) + '"' : '""'),
+    'category: "' + ys(b.category) + '"',
+    'status: "' + (b.status === 'read' ? 'read' : 'unread') + '"',
+    'added: "' + fmtDate(b.addedAt) + '"',
+    tagNames.length ? 'tags:\n' + tagNames.map(function (t) { return '  - ' + t; }).join('\n') : 'tags: []',
+    '---', '', tagLine, '',
+    '- 作者：' + (b.author || '—'),
+    '- 译者：' + (b.translator || '—'),
+    '- 出版年份：' + (b.year || '—'),
+    '- ISBN：' + (b.isbn || '—'),
+    ''].join('\n');
+}
+function overviewMd() {
+  var rd = books.filter(function (b) { return b.status === 'read'; });
+  var ur = books.filter(function (b) { return b.status !== 'read'; });
+  function row(b) {
+    return '- [[' + safeName(b.title) + ']] ｜ ' + (b.author || '—') + (b.year ? ' ｜ ' + b.year : '') + (b.category ? ' ｜ #' + b.category : '');
+  }
+  return ['---', 'generated: "极简书房"', '---', '',
+    '# 书架', '',
+    '共 ' + books.length + ' 本 ｜ 已读 ' + rd.length + ' ｜ 未读 ' + ur.length, '',
+    '## 未读（' + ur.length + '）', ur.map(row).join('\n') || '（无）', '',
+    '## 已读（' + rd.length + '）', rd.map(row).join('\n') || '（无）', ''].join('\n');
+}
+function ensurePerm() {
+  if (!obsDir) return Promise.resolve(false);
+  return obsDir.queryPermission({ mode: 'readwrite' }).then(function (p) {
+    if (p === 'granted') return true;
+    return obsDir.requestPermission({ mode: 'readwrite' }).then(function (p2) { return p2 === 'granted'; });
+  });
+}
+function updateObsUI() {
+  var el = $('obsStatus');
+  if (obsDir) { el.textContent = '已连接 · 自动同步'; el.classList.remove('off'); $('btnObs').textContent = '🔌 重新连接 Obsidian'; }
+  else { el.textContent = '未连接'; el.classList.add('off'); $('btnObs').textContent = '🔌 连接 Obsidian 库'; }
+}
+function syncObsidian() {
+  if (!obsDir) return Promise.resolve();
+  return ensurePerm().then(function (ok) {
+    if (!ok) { showMsg('需要重新授权 Obsidian 文件夹'); return; }
+    return obsDir.getDirectoryHandle('书架', { create: true }).then(function (sub) {
+      var counts = {};
+      var seq = Promise.resolve();
+      books.forEach(function (b) {
+        seq = seq.then(function () {
+          var base = safeName(b.title);
+          var key = base.toLowerCase();
+          counts[key] = (counts[key] || 0) + 1;
+          var fname = counts[key] > 1 ? base + ' (' + String(b.isbn || b.id).slice(-4) + ')' : base;
+          return sub.getFileHandle(fname + '.md', { create: true }).then(function (fh) {
+            return fh.createWritable().then(function (w) {
+              return w.write(bookMd(b)).then(function () { return w.close(); });
+            });
+          }).then(function () { b._md = fname + '.md'; });
+        });
+      });
+      return seq.then(function () {
+        return obsDir.getFileHandle('书架.md', { create: true }).then(function (fh) {
+          return fh.createWritable().then(function (w) {
+            return w.write(overviewMd()).then(function () { return w.close(); });
+          });
+        });
+      }).then(function () {
+        localStorage.setItem(LS_KEY, JSON.stringify(books));
+        $('obsStatus').textContent = '已同步 ' + new Date().toLocaleTimeString();
+      });
+    });
+  }).catch(function (e) { showMsg('同步失败：' + e.message); });
+}
+function scheduleSync() {
+  if (!obsDir) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncObsidian, 800);
+}
+function deleteFromObsidian(b) {
+  if (!obsDir || !b._md) return Promise.resolve();
+  return ensurePerm().then(function (ok) {
+    if (!ok) return;
+    return obsDir.getDirectoryHandle('书架').then(function (sub) {
+      return sub.removeEntry(b._md);
+    }).catch(function () {});
+  }).catch(function () {});
+}
+
+$('btnObs').onclick = function () {
+  if (!window.showDirectoryPicker) {
+    showMsg('此浏览器不支持直连文件夹，请用电脑 Chrome/Edge 打开，或用「导出 MD」');
+    return;
+  }
+  window.showDirectoryPicker({ mode: 'readwrite' }).then(function (dir) {
+    obsDir = dir;
+    return idbSet('obsDir', dir).then(function () { updateObsUI(); return syncObsidian(); });
+  }).then(function () { showMsg('已连接 Obsidian 库，开始自动同步'); })
+    .catch(function (e) { if (e && e.name !== 'AbortError') showMsg('连接失败：' + e.message); });
+};
+$('btnMd').onclick = function () {
+  var blob = new Blob([overviewMd()], { type: 'text/markdown;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '书架-' + new Date().toISOString().slice(0, 10) + '.md';
+  a.click();
+  showMsg('已下载，把 md 放进 Obsidian 库即可');
+};
+
+$('btnJson').onclick = function () {
+  var clean = books.map(function (b) { var c = {}; for (var k in b) if (k !== '_md') c[k] = b[k]; return c; });
+  var blob = new Blob([JSON.stringify({ app: 'minimal-library', version: 1, books: clean }, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '书房数据-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  showMsg('已导出，发到电脑后点「导入数据」');
+};
+$('btnImport').onclick = function () { $('fileImport').click(); };
+$('fileImport').onchange = function () {
+  var f = this.files[0];
+  this.value = '';
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    try {
+      var d = JSON.parse(reader.result);
+      var arr = d.books || d;
+      if (!Array.isArray(arr)) throw new Error('格式不对');
+      var added = 0, updated = 0;
+      arr.forEach(function (raw) {
+        if (!raw || !raw.title) return;
+        var b = {
+          id: raw.id || Date.now() + Math.floor(Math.random() * 1000),
+          isbn: normISBN(raw.isbn || ''), title: String(raw.title),
+          author: raw.author || '', translator: raw.translator || '',
+          year: raw.year || '', category: raw.category || '',
+          status: raw.status === 'read' ? 'read' : 'unread',
+          addedAt: raw.addedAt || Date.now()
+        };
+        var hit = books.find(function (x) {
+          return (b.isbn && x.isbn === b.isbn) || (raw.id && x.id === raw.id);
+        });
+        if (hit) { var keepMd = hit._md; for (var k in b) hit[k] = b[k]; hit._md = keepMd; updated++; }
+        else { books.push(b); added++; }
+      });
+      save(); render();
+      showMsg('导入完成：新增 ' + added + ' 本，更新 ' + updated + ' 本');
+    } catch (e) { showMsg('导入失败：' + e.message); }
+  };
+  reader.readAsText(f);
+};
+
+/* ================= 渲染 ================= */
+function render() {
+  var cats = [];
+  books.forEach(function (b) { if (b.category && cats.indexOf(b.category) < 0) cats.push(b.category); });
+  var catSel = $('catSel'), cur = catSel.value;
+  catSel.innerHTML = '<option value="all">全部标签</option>' +
+    cats.map(function (c) { return '<option value="' + esc(c) + '">#' + esc(c) + '</option>'; }).join('');
+  catSel.value = (cats.indexOf(cur) >= 0) ? cur : 'all';
+
+  var kw = $('search').value.trim().toLowerCase();
+  var shown = books.filter(function (b) {
+    if (filterStatus !== 'all' && b.status !== filterStatus) return false;
+    if (catSel.value !== 'all' && b.category !== catSel.value) return false;
+    if (kw && (b.title + ' ' + (b.author || '') + ' ' + (b.isbn || '')).toLowerCase().indexOf(kw) < 0) return false;
+    return true;
+  }).sort(function (a, b) { return b.addedAt - a.addedAt; });
+
+  var rd = books.filter(function (b) { return b.status === 'read'; }).length;
+  $('stat').textContent = '共 ' + books.length + ' 本 · 已读 ' + rd + ' · 未读 ' + (books.length - rd);
+
+  if (!shown.length) { $('list').innerHTML = '<li class="empty">还没有书，先扫一本吧</li>'; return; }
+  $('list').innerHTML = shown.map(function (b) {
+    var meta = esc(b.author || '—');
+    if (b.translator) meta += ' / 译 ' + esc(b.translator);
+    if (b.year) meta += ' · ' + esc(b.year);
+    if (b.category) meta += ' · #' + esc(b.category);
+    if (b.isbn) meta += ' · ISBN ' + esc(b.isbn);
+    return '<li class="book ' + (b.status === 'read' ? 'done' : '') + '" data-id="' + b.id + '">' +
+      '<button class="toggle">' + (b.status === 'read' ? '✓' : '○') + '</button>' +
+      '<div class="info"><div class="t">' + esc(b.title) + '</div><div class="m">' + meta + '</div></div>' +
+      '<button class="edit">编辑</button><button class="del">×</button></li>';
+  }).join('');
+}
+
+/* ================= 表单 ================= */
+function openForm(prefill, isEdit) {
+  prefill = prefill || {};
+  editingId = isEdit ? prefill.id : null;
+  $('fTitle').value = prefill.title || '';
+  $('fAuthor').value = prefill.author || '';
+  $('fTranslator').value = prefill.translator || '';
+  $('fYear').value = prefill.year || '';
+  $('fCategory').value = prefill.category || '';
+  $('fStatus').value = prefill.status || 'unread';
+  $('fIsbnTip').textContent = prefill.isbn ? ('ISBN ' + prefill.isbn) : '无 ISBN（手动录入）';
+  $('fIsbnTip').dataset.isbn = prefill.isbn || '';
+  $('form').hidden = false;
+  $('fTitle').focus();
+}
+function closeForm() { $('form').hidden = true; editingId = null; }
+
+function saveForm() {
+  var title = $('fTitle').value.trim();
+  if (!title) { showMsg('书名不能为空'); return; }
+  var isbn = normISBN($('fIsbnTip').dataset.isbn || '');
+  var dup = books.find(function (b) { return b.isbn && isbn && b.isbn === isbn && b.id !== editingId; });
+  if (dup) { showMsg('这本书已在书架（《' + dup.title + '》）'); return; }
+  var data = {
+    isbn: isbn, title: title,
+    author: $('fAuthor').value.trim(),
+    translator: $('fTranslator').value.trim(),
+    year: $('fYear').value.trim(),
+    category: $('fCategory').value.trim().replace(/^#/, ''),
+    status: $('fStatus').value
+  };
+  if (editingId) {
+    var b = books.find(function (x) { return x.id === editingId; });
+    if (b) { for (var k in data) b[k] = data[k]; showMsg('已更新'); }
+  } else {
+    data.id = Date.now(); data.addedAt = Date.now();
+    books.push(data);
+    showMsg('已入库');
+  }
+  save(); render(); closeForm();
+  $('isbn').value = ''; $('isbn').focus();
+}
+
+/* ================= ISBN 查询 ================= */
+function fetchGoogle(isbn) {
+  return fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn)
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.items || !d.items.length) return null;
+      var v = d.items[0].volumeInfo || {};
+      return {
+        title: (v.title || '') + (v.subtitle ? '：' + v.subtitle : ''),
+        author: (v.authors || []).join('，'), translator: '',
+        year: (v.publishedDate || '').slice(0, 4),
+        category: (v.categories && v.categories[0]) || '', isbn: isbn
+      };
+    }).catch(function () { return null; });
+}
+function fetchOL(isbn) {
+  return fetch('https://openlibrary.org/isbn/' + isbn + '.json')
+    .then(function (r) { if (!r.ok) return null; return r.json(); })
+    .then(function (d) {
+      if (!d) return null;
+      return Promise.all((d.authors || []).slice(0, 3).map(function (a) {
+        return fetch('https://openlibrary.org' + a.key + '.json')
+          .then(function (r) { return r.json(); }).then(function (ad) { return ad.name || ''; })
+          .catch(function () { return ''; });
+      })).then(function (names) {
+        var m = String(d.publish_date || '').match(/\d{4}/);
+        return { title: d.title || '', author: names.filter(Boolean).join('，'), translator: '',
+                 year: m ? m[0] : '', category: '', isbn: isbn };
+      });
+    }).catch(function () { return null; });
+}
+function queryISBN() {
+  var isbn = normISBN($('isbn').value);
+  if (!isbn) { showMsg('请输入或扫描 ISBN'); return; }
+  var existing = books.find(function (b) { return b.isbn === isbn; });
+  if (existing) { showMsg('已在书架：《' + existing.title + '》'); return; }
+  showMsg('正在查询 ' + isbn + ' …');
+  fetchGoogle(isbn).then(function (info) { return info || fetchOL(isbn); })
+    .then(function (info) {
+      if (info) { openForm(info, false); showMsg('已自动填充，核对后点保存'); }
+      else { openForm({ isbn: isbn }, false); showMsg('没查到这本书，请手动填写'); }
+    });
+}
+
+/* ================= 摄像头扫码 ================= */
+var stream = null, scanning = false, detector = null;
+function startScan() {
+  if (!('BarcodeDetector' in window) || !navigator.mediaDevices) {
+    showMsg('此浏览器不支持摄像头扫码，可手动输入或用扫码 App 后「粘贴」'); return;
+  }
+  if (location.protocol === 'file:') {
+    showMsg('摄像头需 https 访问（用部署后的地址）；本地打开请用扫码枪或手动输入'); return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
+    stream = s;
+    var v = $('video'); v.srcObject = s;
+    v.play().catch(function () {});
+    $('scanBox').hidden = false; scanning = true;
+    detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
+    var tick = function () {
+      if (!scanning) return;
+      detector.detect(v).then(function (codes) {
+        if (codes && codes.length) {
+          var val = normISBN(codes[0].rawValue);
+          stopScan(); $('isbn').value = val; queryISBN(); return;
+        }
+        setTimeout(tick, 300);
+      }).catch(function () { setTimeout(tick, 300); });
+    };
+    tick();
+  }).catch(function () { showMsg('无法打开摄像头，请检查权限'); });
+}
+function stopScan() {
+  scanning = false;
+  if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  $('scanBox').hidden = true;
+}
+
+/* ================= 事件 ================= */
+$('btnQuery').onclick = queryISBN;
+$('isbn').addEventListener('keydown', function (e) { if (e.key === 'Enter') queryISBN(); });
+$('btnScan').onclick = startScan;
+$('btnStop').onclick = stopScan;
+$('btnPaste').onclick = function () {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(function (t) {
+      var val = normISBN(t);
+      if (val) { $('isbn').value = val; queryISBN(); }
+      else showMsg('剪贴板里没有可用的 ISBN');
+    }).catch(function () { showMsg('无法读取剪贴板，请手动粘贴到输入框'); });
+  } else { showMsg('此浏览器不支持读剪贴板，请直接粘贴到输入框'); }
+};
+$('btnSave').onclick = saveForm;
+$('btnCancel').onclick = closeForm;
+
+document.querySelectorAll('.seg button').forEach(function (btn) {
+  btn.onclick = function () {
+    document.querySelectorAll('.seg button').forEach(function (b) { b.classList.remove('on'); });
+    btn.classList.add('on'); filterStatus = btn.dataset.s; render();
+  };
+});
+$('catSel').onchange = render;
+$('search').oninput = render;
+
+$('list').addEventListener('click', function (e) {
+  var li = e.target.closest('li.book');
+  if (!li) return;
+  var id = +li.dataset.id;
+  var b = books.find(function (x) { return x.id === id; });
+  if (!b) return;
+  if (e.target.classList.contains('del')) {
+    var tip = obsDir ? '删除《' + b.title + '》？（Obsidian 中的对应笔记也会删除）' : '删除《' + b.title + '》？';
+    if (confirm(tip)) {
+      books = books.filter(function (x) { return x.id !== id; });
+      save(); render(); deleteFromObsidian(b);
+    }
+    return;
+  }
+  if (e.target.classList.contains('edit')) { openForm(b, true); return; }
+  b.status = (b.status === 'read') ? 'unread' : 'read';
+  save(); render();
+});
+
+/* ================= PWA 安装 & 启动 ================= */
+var deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault(); deferredPrompt = e; $('btnInstall').hidden = false;
+});
+$('btnInstall').onclick = function () {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(function () { deferredPrompt = null; $('btnInstall').hidden = true; });
+};
+if (window.matchMedia && matchMedia('(display-mode: standalone)').matches) $('btnInstall').hidden = true;
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+}
+
+/* 恢复 Obsidian 连接 */
+idbGet('obsDir').then(function (h) {
+  if (h) {
+    obsDir = h; updateObsUI();
+    ensurePerm().then(function (ok) {
+      if (ok) syncObsidian();
+      else $('obsStatus').textContent = '已连接（点同步授权）';
+    });
+  }
+}).catch(function () {});
+
+updateCloudUI();
+if (cloudCfg) pullCloud();
+setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
+
+$('appVer').textContent = 'v1.3 · 2026-09-16';
+render();
+$('isbn').focus();
+</script>
+</body>
+</html>
