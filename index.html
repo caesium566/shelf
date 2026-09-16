@@ -26,12 +26,12 @@
   #obsStatus { font-size:12px; color:#2e7d32; }
   #obsStatus.off { color:#999; }
 
-  #proxyForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
-  #proxyForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-  #proxyForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
-  #proxyForm input.grow { flex:1; min-width:110px; }
-  #proxyForm .actions { display:flex; gap:8px; margin-top:6px; }
-  #proxyForm .actions button { height:36px; }
+  #proxyForm, #ghForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
+  #proxyForm .row, #ghForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  #proxyForm input, #ghForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
+  #proxyForm input.grow, #ghForm input.grow { flex:1; min-width:110px; }
+  #proxyForm .actions, #ghForm .actions { display:flex; gap:8px; margin-top:6px; }
+  #proxyForm .actions button, #ghForm .actions button { height:36px; }
   #cloudForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
   #cloudForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
   #cloudForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
@@ -137,6 +137,25 @@
   <div class="hint">代理用于快速查询中文书目；未设置时会直接查 OpenLibrary / Google，慢且中文书常查不到</div>
 </div>
 
+<div class="obs">
+  <button id="btnGh" class="ghost">🔄 数据同步设置</button>
+  <span id="ghStatus" class="off">未设置（数据只在本设备）</span>
+</div>
+
+<div id="ghForm" hidden>
+  <div class="row">
+    <input id="gUser" class="grow" placeholder="GitHub 用户名，如 caesium566">
+    <input id="gRepo" class="grow" placeholder="数据仓库名" value="shelf-data">
+  </div>
+  <div class="row"><input id="gToken" class="grow" placeholder="Personal Access Token（classic，勾选 repo）" style="width:100%"></div>
+  <div class="actions">
+    <button id="btnGhSave">保存并同步</button>
+    <button id="btnGhOff" class="ghost">断开</button>
+    <button id="btnGhCancel" class="ghost">取消</button>
+  </div>
+  <div class="hint">Token 获取：GitHub 头像 → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token，勾选 repo，生成后立即复制</div>
+</div>
+
 <div id="cloudForm" hidden>
   <div class="row"><input id="cAppId" class="grow" placeholder="AppID" style="width:100%"></div>
   <div class="row"><input id="cAppKey" class="grow" placeholder="AppKey" style="width:100%"></div>
@@ -220,7 +239,7 @@ try { books = JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch (e) { book
 var editingId = null, filterStatus = 'all', obsDir = null, syncTimer = null;
 var $ = function (id) { return document.getElementById(id); };
 
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(books)); scheduleSync(); scheduleCloudPush(); }
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(books)); localStorage.setItem('shelf-local-ts', String(Date.now())); scheduleSync(); scheduleCloudPush(); scheduleGhPush(); }
 function normISBN(s) { return (s || '').replace(/[^0-9Xx]/g, ''); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -306,6 +325,9 @@ function pullCloud() {
         localStorage.setItem('shelf-sync-at', String(serverTime));
         updateCloudUI();
 updateProxyUI();
+updateGhUI();
+if (ghCfg) ghPull();
+setInterval(function () { if (ghCfg) ghPull(); }, 60000);
       }
     })
     .catch(function (e) {
@@ -613,6 +635,134 @@ function saveForm() {
   save(); render(); closeForm();
   $('isbn').value = ''; $('isbn').focus();
 }
+
+/* ================= GitHub 数据同步 ================= */
+var ghCfg = null;
+try { ghCfg = JSON.parse(localStorage.getItem('shelf-gh') || 'null'); } catch (e) { ghCfg = null; }
+var ghLastSync = 0, ghDirty = false, ghTimer = null, ghPulling = false;
+try { ghLastSync = +(localStorage.getItem('shelf-gh-ts') || 0); } catch (e) {}
+
+function ghUrl() { return 'https://api.github.com/repos/' + ghCfg.user + '/' + ghCfg.repo + '/contents/data.json'; }
+function ghHeaders() { return { 'Authorization': 'token ' + ghCfg.token, 'Accept': 'application/vnd.github+json' }; }
+function b64e(str) { return btoa(unescape(encodeURIComponent(str))); }
+function b64d(str) { return decodeURIComponent(escape(atob(str.replace(/\n/g, '')))); }
+function ghBooksClean() { return books.map(function (b) { var c = {}; for (var k in b) if (k !== '_md') c[k] = b[k]; return c; }); }
+
+function updateGhUI() {
+  var el = $('ghStatus');
+  if (ghCfg) {
+    el.textContent = '已连接 ' + ghCfg.user + '/' + ghCfg.repo + (ghLastSync ? ' · ' + new Date(ghLastSync).toLocaleTimeString() : '');
+    el.classList.remove('off');
+    $('btnGh').textContent = '🔄 数据同步已开';
+  } else {
+    el.textContent = '未设置（数据只在本设备）';
+    el.classList.add('off');
+    $('btnGh').textContent = '🔄 数据同步设置';
+  }
+}
+function ghApplyRemote(data) {
+  var keepMd = {};
+  books.forEach(function (b) { if (b._md) keepMd[b.id] = b._md; });
+  books = (data.books || []).map(function (b) { if (keepMd[b.id]) b._md = keepMd[b.id]; return b; });
+  localStorage.setItem(LS_KEY, JSON.stringify(books));
+  render();
+  if (obsDir) syncObsidian();
+}
+function ghPush() {
+  if (!ghCfg || !ghDirty) return Promise.resolve();
+  var localTs = +(localStorage.getItem('shelf-local-ts') || 0);
+  return fetch(ghUrl(), { headers: ghHeaders() }).then(function (r) {
+    if (r.status === 404) return { sha: null, remote: null };
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json().then(function (f) { return { sha: f.sha, remote: JSON.parse(b64d(f.content)) }; });
+  }).then(function (cur) {
+    if (cur.remote && cur.remote.updatedAt > localTs && cur.remote.updatedAt > ghLastSync) {
+      ghDirty = false;
+      return ghPull(); // 远端更新，以远端为准
+    }
+    var payload = {
+      message: 'shelf sync',
+      content: b64e(JSON.stringify({ books: ghBooksClean(), updatedAt: Date.now() })),
+      branch: (ghCfg.branch || 'main')
+    };
+    if (cur.sha) payload.sha = cur.sha;
+    return fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(payload) })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (res) {
+        ghDirty = false;
+        var t = Date.now();
+        try { t = JSON.parse(b64d(res.content)).updatedAt || t; } catch (e) {}
+        ghLastSync = t;
+        localStorage.setItem('shelf-gh-ts', String(t));
+        updateGhUI();
+      });
+  }).catch(function (e) {
+    if (e && e.message && e.message.indexOf('401') >= 0) showMsg('GitHub Token 无效或过期，请重新设置');
+  });
+}
+function ghPull() {
+  if (!ghCfg || ghPulling) return Promise.resolve();
+  ghPulling = true;
+  return fetch(ghUrl(), { headers: ghHeaders() }).then(function (r) {
+    if (r.status === 404) { ghDirty = true; return ghPush(); }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function (f) {
+    if (!f || !f.content) return;
+    var data = JSON.parse(b64d(f.content));
+    var t = data.updatedAt || 0;
+    if (t > ghLastSync) {
+      if (JSON.stringify(ghBooksClean()) !== JSON.stringify(data.books || [])) {
+        ghApplyRemote(data);
+        showMsg(ghDirty ? '两端都有修改，已采用 GitHub 上的版本' : '已从 GitHub 同步数据');
+      }
+      ghDirty = false;
+      ghLastSync = t;
+      localStorage.setItem('shelf-gh-ts', String(t));
+      updateGhUI();
+    }
+  }).catch(function (e) {
+    if (e && e.message && e.message.indexOf('401') >= 0) showMsg('GitHub Token 无效或过期，请重新设置');
+  }).then(function () { ghPulling = false; });
+}
+function scheduleGhPush() {
+  if (!ghCfg) return;
+  ghDirty = true;
+  clearTimeout(ghTimer);
+  ghTimer = setTimeout(ghPush, 5000);
+}
+
+$('btnGh').onclick = function () {
+  $('ghForm').hidden = !$('ghForm').hidden;
+  if (ghCfg) {
+    $('gUser').value = ghCfg.user; $('gRepo').value = ghCfg.repo;
+    $('gToken').value = ghCfg.token; $('gBranch') && ($('gBranch').value = ghCfg.branch || 'main');
+  }
+};
+$('btnGhCancel').onclick = function () { $('ghForm').hidden = true; };
+$('btnGhSave').onclick = function () {
+  var cfg = {
+    user: $('gUser').value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/.*$/, ''),
+    repo: $('gRepo').value.trim() || 'shelf-data',
+    token: $('gToken').value.trim(),
+    branch: 'main'
+  };
+  if (!cfg.user || !cfg.token) { showMsg('用户名和 Token 都要填'); return; }
+  ghCfg = cfg;
+  localStorage.setItem('shelf-gh', JSON.stringify(cfg));
+  ghDirty = true;
+  $('ghForm').hidden = true;
+  updateGhUI();
+  showMsg('正在连接 GitHub…');
+  ghPush().then(ghPull);
+};
+$('btnGhOff').onclick = function () {
+  ghCfg = null; ghDirty = false;
+  localStorage.removeItem('shelf-gh');
+  $('ghForm').hidden = true;
+  updateGhUI();
+  showMsg('已断开数据同步（本地数据保留）');
+};
 
 /* ================= ISBN 查询 ================= */
 var proxyUrl = localStorage.getItem('shelf-proxy') || '';
@@ -957,7 +1107,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.11 · 2026-09-16';
+$('appVer').textContent = 'v1.12 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
