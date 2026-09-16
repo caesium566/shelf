@@ -593,8 +593,18 @@ function saveForm() {
 }
 
 /* ================= ISBN 查询 ================= */
+function fetchTO(url, opts, ms) {
+  ms = ms || 9000;
+  var ctrl = new AbortController();
+  var timer = setTimeout(function () { ctrl.abort(); }, ms);
+  return fetch(url, Object.assign({ signal: ctrl.signal }, opts || {})).then(function (r) {
+    clearTimeout(timer); return r;
+  }, function (e) {
+    clearTimeout(timer); throw e;
+  });
+}
 function fetchGoogle(isbn) {
-  return fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn)
+  return fetchTO('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn)
     .then(function (r) { return r.json(); })
     .then(function (d) {
       if (!d.items || !d.items.length) return null;
@@ -608,12 +618,12 @@ function fetchGoogle(isbn) {
     }).catch(function () { return null; });
 }
 function fetchOL(isbn) {
-  return fetch('https://openlibrary.org/isbn/' + isbn + '.json')
+  return fetchTO('https://openlibrary.org/isbn/' + isbn + '.json')
     .then(function (r) { if (!r.ok) return null; return r.json(); })
     .then(function (d) {
       if (!d) return null;
       return Promise.all((d.authors || []).slice(0, 3).map(function (a) {
-        return fetch('https://openlibrary.org' + a.key + '.json')
+        return fetchTO('https://openlibrary.org' + a.key + '.json')
           .then(function (r) { return r.json(); }).then(function (ad) { return ad.name || ''; })
           .catch(function () { return ''; });
       })).then(function (names) {
@@ -629,10 +639,10 @@ function queryISBN() {
   var existing = books.find(function (b) { return b.isbn === isbn; });
   if (existing) { showMsg('已在书架：《' + existing.title + '》'); return; }
   showMsg('正在查询 ' + isbn + ' …');
-  fetchGoogle(isbn).then(function (info) { return info || fetchOL(isbn); })
+  fetchOL(isbn).then(function (info) { return info || fetchGoogle(isbn); })
     .then(function (info) {
       if (info) { openForm(info, false); showMsg('已自动填充，核对后点保存'); }
-      else { openForm({ isbn: isbn }, false); showMsg('没查到这本书，请手动填写'); }
+      else { openForm({ isbn: isbn }, false); showMsg('两个书库都没查到（可能网络原因），请手动填写'); }
     });
 }
 
@@ -856,7 +866,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.7 · 2026-09-16';
+$('appVer').textContent = 'v1.8 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
