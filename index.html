@@ -87,7 +87,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.15</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.17</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -233,6 +233,43 @@ function showMsg(t, ms) {
   msgTimer = setTimeout(function () { m.style.opacity = 0; }, ms || 2600);
 }
 
+function render() {
+  var tagSet = [];
+  books.forEach(function (b) {
+    bookTagsArr(b).forEach(function (t) { if (t && tagSet.indexOf(t) < 0) tagSet.push(t); });
+  });
+  var catSel = $('catSel'), cur = catSel.value;
+  catSel.innerHTML = '<option value="all">全部标签</option>' +
+    tagSet.map(function (t) { return '<option value="' + esc(t) + '">#' + esc(t) + '</option>'; }).join('');
+  catSel.value = (tagSet.indexOf(cur) >= 0) ? cur : 'all';
+
+  var kw = $('search').value.trim().toLowerCase();
+  var shown = books.filter(function (b) {
+    if (filterStatus !== 'all' && b.status !== filterStatus) return false;
+    if (catSel.value !== 'all' && bookTagsArr(b).indexOf(catSel.value) < 0) return false;
+    if (kw && (b.title + ' ' + (b.author || '') + ' ' + (b.isbn || '')).toLowerCase().indexOf(kw) < 0) return false;
+    return true;
+  }).sort(function (a, b) { return b.addedAt - a.addedAt; });
+
+  var rd = books.filter(function (b) { return b.status === 'read'; }).length;
+  $('stat').textContent = '共 ' + books.length + ' 本 · 已读 ' + rd + ' · 未读 ' + (books.length - rd);
+
+  if (!shown.length) { $('list').innerHTML = '<li class="empty">还没有书，先扫一本吧</li>'; return; }
+  $('list').innerHTML = shown.map(function (b) {
+    var meta = esc(b.author || '\u2014');
+    if (b.translator) meta += ' / 译 ' + esc(b.translator);
+    if (b.year) meta += ' · ' + esc(b.year);
+    var tags = bookTagsArr(b);
+    if (tags.length) meta += ' · ' + tags.map(function (t) { return '#' + esc(t); }).join(' ');
+    if (b.volumes > 1) meta += ' · 全' + b.volumes + '册';
+    if (b.isbn) meta += ' · ISBN ' + esc(b.isbn);
+    return '<li class="book ' + (b.status === 'read' ? 'done' : '') + '" data-id="' + b.id + '">' +
+      '<button class="toggle">' + (b.status === 'read' ? '\u2713' : '\u25cb') + '</button>' +
+      '<div class="info"><div class="t">' + esc(b.title) + '</div><div class="m">' + meta + '</div></div>' +
+      '<button class="edit">编辑</button><button class="del">\u00d7</button></li>';
+  }).join('');
+}
+
 /* ================= IndexedDB（保存 Obsidian 目录句柄） ================= */
 function idbOpen() { return new Promise(function (res, rej) {
   var r = indexedDB.open('shelf-db', 1);
@@ -257,6 +294,15 @@ function ghHeaders() { return { 'Authorization': 'token ' + ghCfg.token, 'Accept
 function b64e(str) { return btoa(unescape(encodeURIComponent(str))); }
 function b64d(str) { return decodeURIComponent(escape(atob(str.replace(/\n/g, '')))); }
 function ghBooksClean() { return books.map(function (b) { var c = {}; for (var k in b) if (k !== '_md') c[k] = b[k]; return c; }); }
+function mergeBooksArr(local, remote) {
+  var map = {};
+  (remote || []).forEach(function (b) { map[b.id] = b; });
+  (local || []).forEach(function (b) { map[b.id] = b; });
+  var out = [];
+  Object.keys(map).forEach(function (k) { out.push(map[k]); });
+  out.sort(function (a, b) { return (a.addedAt || 0) - (b.addedAt || 0); });
+  return out;
+}
 
 function updateGhUI() {
   var el = $('ghStatus');
@@ -286,10 +332,14 @@ function ghPush() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json().then(function (f) { return { sha: f.sha, remote: JSON.parse(b64d(f.content)) }; });
   }).then(function (cur) {
-    if (cur.remote && cur.remote.updatedAt > localTs && cur.remote.updatedAt > ghLastSync) {
-      ghDirty = false;
-      return ghPull(); // 远端更新，以远端为准
+    if (cur.remote && Array.isArray(cur.remote.books) && cur.remote.updatedAt > ghLastSync) {
+      var merged = mergeBooksArr(books, cur.remote.books);
+      var changed = JSON.stringify(merged) !== JSON.stringify(books);
+      books = merged;
+      localStorage.setItem(LS_KEY, JSON.stringify(books));
+      if (changed) { render(); showMsg('已合并另一台设备的书目'); }
     }
+    if (!books.length && !cur.sha) { ghDirty = false; return; } // 两端都空，不推
     var payload = {
       message: 'shelf sync',
       content: b64e(JSON.stringify({ books: ghBooksClean(), updatedAt: Date.now() })),
@@ -314,7 +364,7 @@ function ghPull() {
   if (!ghCfg || ghPulling) return Promise.resolve();
   ghPulling = true;
   return fetch(ghUrl(), { headers: ghHeaders() }).then(function (r) {
-    if (r.status === 404) { ghDirty = true; return ghPush(); }
+    if (r.status === 404) { if (books.length) { ghDirty = true; return ghPush(); } return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   }).then(function (f) {
@@ -346,7 +396,7 @@ $('btnGh').onclick = function () {
   $('ghForm').hidden = !$('ghForm').hidden;
   if (ghCfg) {
     $('gUser').value = ghCfg.user; $('gRepo').value = ghCfg.repo;
-    $('gToken').value = ghCfg.token; $('gBranch') && ($('gBranch').value = ghCfg.branch || 'main');
+    $('gToken').value = ghCfg.token;
   }
 };
 $('btnGhCancel').onclick = function () { $('ghForm').hidden = true; };
@@ -714,7 +764,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.15 · 2026-09-16';
+$('appVer').textContent = 'v1.17 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
