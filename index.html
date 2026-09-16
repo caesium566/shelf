@@ -618,6 +618,7 @@ function saveForm() {
 var proxyUrl = localStorage.getItem('shelf-proxy') || '';
 
 function updateProxyUI() {
+  proxyUrl = getProxy();
   var el = $('proxyStatus');
   if (proxyUrl) {
     el.textContent = '已设置 ' + proxyUrl.replace(/^https?:\/\//, '').slice(0, 32);
@@ -650,10 +651,14 @@ $('btnProxyOff').onclick = function () {
   showMsg('已清除书库代理');
 };
 
+function getProxy() {
+  try { return localStorage.getItem('shelf-proxy') || ''; } catch (e) { return proxyUrl || ''; }
+}
 function queryProxy(isbn) {
-  if (!proxyUrl) return Promise.resolve(undefined);
-  var sep = proxyUrl.indexOf('?') >= 0 ? '&' : '?';
-  return fetchTO(proxyUrl + sep + 'isbn=' + isbn, null, 8000)
+  var p = getProxy();
+  if (!p) return Promise.resolve(undefined);
+  var sep = p.indexOf('?') >= 0 ? '&' : '?';
+  return fetchTO(p + sep + 'isbn=' + isbn, null, 8000)
     .then(function (r) { if (!r.ok) return null; return r.json(); })
     .then(function (d) { return (d && d.found && d.info) ? d.info : null; })
     .catch(function () { return null; });
@@ -704,7 +709,7 @@ function queryISBN() {
   if (!isbn) { showMsg('请输入或扫描 ISBN'); return; }
   var existing = books.find(function (b) { return b.isbn === isbn; });
   if (existing) { showMsg('已在书架：《' + existing.title + '》'); return; }
-  if (proxyUrl) {
+  if (getProxy()) {
     showMsg('正在查询 ' + isbn + '（书库代理）…', 6000);
     queryProxy(isbn).then(function (info) {
       if (info) { openForm(info, false); showMsg('已自动填充（国内书库），核对后点保存'); return; }
@@ -952,7 +957,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.10 · 2026-09-16';
+$('appVer').textContent = 'v1.11 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
