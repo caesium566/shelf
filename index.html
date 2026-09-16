@@ -51,6 +51,8 @@
   #scanBox .frame i:nth-child(4) { right:0; bottom:0; border-left:none; border-top:none; }
   #scanStatus { position:absolute; left:0; right:0; bottom:16px; text-align:center; color:#fff; font-size:12px; text-shadow:0 1px 3px #000; }
   #scanBox button { position:absolute; right:10px; top:10px; background:rgba(255,255,255,.9); color:#000; border:none; height:34px; }
+  #scanBox #btnTorch { left:10px; right:auto; top:10px; font-size:16px; width:42px; padding:0; }
+  #scanBox #btnTorch.on { background:#ffd54f; }
 
   .filter { display:flex; gap:8px; margin:14px 0 10px; align-items:center; flex-wrap:wrap; }
   .filter .seg { display:flex; border:1px solid #ccc; border-radius:4px; overflow:hidden; }
@@ -134,6 +136,7 @@
   <div class="frame"><i></i><i></i><i></i><i></i></div>
   <div class="tip">将 ISBN 条码放入框内</div>
   <div id="scanStatus">正在启动摄像头…</div>
+  <button id="btnTorch" hidden>🔦</button>
   <button id="btnStop">取消</button>
 </div>
 
@@ -638,6 +641,14 @@ var stream = null, scanning = false, detector = null, zxingTimer = null;
 var scanMode = null, scanFound = false, switchTimer = null, nativeFail = 0;
 
 function setScanStatus(t) { var el = $('scanStatus'); if (el) el.textContent = t; }
+var torchTrack = null, torchOn = false;
+$('btnTorch').onclick = function () {
+  if (!torchTrack) return;
+  torchOn = !torchOn;
+  torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] }).then(function () {
+    $('btnTorch').classList.toggle('on', torchOn);
+  }).catch(function () { torchOn = false; showMsg('此设备不支持手电筒'); });
+};
 
 function onScanFound(text) {
   if (scanFound) return;
@@ -682,19 +693,28 @@ function startZxing(v) {
     reader.setHints(hints);
     var canvas = document.createElement('canvas');
     var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var tries = 0;
     var tick = function () {
       if (!scanning || scanMode !== 'zxing' || scanFound) return;
       if (v.readyState >= 2 && v.videoWidth) {
         canvas.width = v.videoWidth; canvas.height = v.videoHeight;
         ctx.drawImage(v, 0, 0);
+        tries++;
+        if (tries === 1 || tries % 10 === 0) setScanStatus('备用引擎识别中… 已尝试 ' + tries + ' 次，保持条码清晰在框内');
         try {
-          var r = reader.decode(new ZXing.HTMLCanvasElementLuminanceSource(canvas));
+          var lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+          var bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+          var r = reader.decode(bitmap);
           if (r && r.getText()) { onScanFound(r.getText()); return; }
         } catch (e) {}
       }
       zxingTimer = setTimeout(tick, 350);
     };
-    showMsg('已切换备用识别引擎，对准条码…');
+    setTimeout(function () {
+      if (scanning && scanMode === 'zxing' && !scanFound) {
+        showMsg('暂未识别到：试试🔦手电、书放平靠近些，或用系统相机扫ISBN后「粘贴」');
+      }
+    }, 15000);
     tick();
   }).catch(function () {
     setScanStatus('');
@@ -722,12 +742,15 @@ function startScan() {
   }
   if (scanning) return;
   setScanStatus('正在启动摄像头…');
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: { ideal: 'continuous' } } }).then(function (s) {
     stream = s;
     var v = $('video'); v.srcObject = s;
     v.play().catch(function () {});
     $('scanBox').hidden = false;
     scanning = true; scanFound = false; nativeFail = 0;
+    torchTrack = s.getVideoTracks()[0] || null; torchOn = false;
+    $('btnTorch').classList.remove('on');
+    try { var caps = torchTrack && torchTrack.getCapabilities ? torchTrack.getCapabilities() : {}; $('btnTorch').hidden = !(caps && caps.torch); } catch (e) { $('btnTorch').hidden = true; }
     if ('BarcodeDetector' in window) {
       try {
         detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
@@ -751,6 +774,9 @@ function stopScan() {
   scanning = false; scanMode = null;
   setScanStatus('');
   clearTimeout(zxingTimer); clearTimeout(switchTimer);
+  if (torchOn && torchTrack) { try { torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) {} }
+  torchOn = false; torchTrack = null;
+  $('btnTorch').hidden = true; $('btnTorch').classList.remove('on');
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   $('scanBox').hidden = true;
 }
@@ -830,7 +856,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.5 · 2026-09-16';
+$('appVer').textContent = 'v1.7 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
