@@ -87,7 +87,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.18</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.19</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -381,21 +381,21 @@ function getDirByPath(root, path) {
 function mergeWrite(fh, b) {
   return fh.getFile().then(function (f) { return f.text(); }).catch(function () { return ''; })
     .then(function (content) {
-      var parsed = splitFrontmatter(content);
-      var fm = parsed.fm;
-      fm.isbn = b.isbn || '';
-      fm.title = b.title;
-      fm.author = b.author || '';
-      fm.translator = b.translator || '';
-      fm.year = b.year || '';
-      fm.tags = bookTagsArr(b);
-      fm.status = b.status === 'read' ? 'read' : 'unread';
-      fm.volumes = b.volumes || 1;
-      fm.added = fmtDate(b.addedAt);
-      var body = parsed.body;
-      if (!body.trim()) body = defaultBookBody(b);
+      var body = content || '';
+      // 幂等：先移除旧的书目信息块，避免重复同步时叠加
+      body = body.replace(/\n*---\n\n\*\*书目信息\*\*[\s\S]*$/, '\n');
+      // 没有正文（没有感想）→ 不动
+      if (!body.trim()) return Promise.resolve();
+      var tags = bookTagsArr(b);
+      var block = '\n---\n\n**书目信息**\n\n' +
+        '- 作者：' + (b.author || '—') + '\n' +
+        '- 译者：' + (b.translator || '—') + '\n' +
+        '- 出版年份：' + (b.year || '—') + '\n' +
+        '- ISBN：' + (b.isbn || '—') + '\n' +
+        (tags.length ? '- 标签：' + tags.map(function (t) { return '#' + t; }).join(' ') + '\n' : '') +
+        '- 状态：' + (b.status === 'read' ? '已读' : '未读') + '\n';
       return fh.createWritable().then(function (w) {
-        return w.write(buildFrontmatter(fm) + '\n' + body).then(function () { return w.close(); });
+        return w.write(body.replace(/\s+$/, '') + '\n' + block).then(function () { return w.close(); });
       });
     });
 }
@@ -414,8 +414,12 @@ function syncObsidian() {
           var key = base.toLowerCase();
           counts[key] = (counts[key] || 0) + 1;
           var fname = counts[key] > 1 ? base + ' (' + String(b.isbn || b.id).slice(-4) + ')' : base;
+          if (mergeMode) {
+            return sub.getFileHandle(fname + '.md').then(function (fh) {
+              return mergeWrite(fh, b);
+            }).catch(function () { /* 感想文件不存在，跳过 */ });
+          }
           return sub.getFileHandle(fname + '.md', { create: true }).then(function (fh) {
-            if (mergeMode) return mergeWrite(fh, b);
             return fh.createWritable().then(function (w) {
               return w.write(bookMd(b)).then(function () { return w.close(); });
             });
@@ -423,12 +427,6 @@ function syncObsidian() {
         });
       });
       return seq.then(function () {
-        return obsDir.getFileHandle('书架.md', { create: true }).then(function (fh) {
-          return fh.createWritable().then(function (w) {
-            return w.write(overviewMd()).then(function () { return w.close(); });
-          });
-        });
-      }).then(function () {
         localStorage.setItem(LS_KEY, JSON.stringify(books));
         $('obsStatus').textContent = '已同步 ' + new Date().toLocaleTimeString();
       });
@@ -989,7 +987,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.18 · 2026-09-16';
+$('appVer').textContent = 'v1.19 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
