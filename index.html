@@ -87,7 +87,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.17</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.18</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -282,6 +282,231 @@ function idbSet(k, v) { return idbOpen().then(function (db) { return new Promise
 function idbGet(k) { return idbOpen().then(function (db) { return new Promise(function (res, rej) {
   var r = db.transaction('kv').objectStore('kv').get(k);
   r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }); }
+
+/* ================= Obsidian 同步（重建） ================= */
+function bookTagsArr(b) {
+  if (b.tags && b.tags.length) return b.tags;
+  if (b.category) return [b.category];
+  return [];
+}
+function safeName(s) {
+  var n = (s || '未命名').replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, '').trim().slice(0, 80);
+  return n || '未命名';
+}
+function ensurePerm() {
+  if (!obsDir) return Promise.resolve(false);
+  return obsDir.queryPermission({ mode: 'readwrite' }).then(function (p) {
+    if (p === 'granted') return true;
+    return obsDir.requestPermission({ mode: 'readwrite' }).then(function (p2) { return p2 === 'granted'; });
+  });
+}
+function updateObsUI() {
+  var el = $('obsStatus');
+  if (obsDir) { el.textContent = '已连接 · 自动同步'; el.classList.remove('off'); $('btnObs').textContent = '重新连接 Obsidian 库'; }
+  else { el.textContent = '未连接'; el.classList.add('off'); $('btnObs').textContent = '连接 Obsidian 库'; }
+}
+function bookMd(b) {
+  var tagNames = bookTagsArr(b);
+  var tagLine = tagNames.map(function (t) { return '#' + t; }).join(' ');
+  var lines = ['---',
+    'isbn: ' + (b.isbn ? '"' + ys(b.isbn) + '"' : '""'),
+    'title: "' + ys(b.title) + '"',
+    'author: "' + ys(b.author) + '"',
+    'translator: "' + ys(b.translator) + '"',
+    'year: ' + (b.year ? '"' + ys(b.year) + '"' : '""'),
+    'status: "' + (b.status === 'read' ? 'read' : 'unread') + '"',
+    'added: "' + fmtDate(b.addedAt) + '"',
+    tagNames.length ? 'tags:\n' + tagNames.map(function (t) { return '  - ' + t; }).join('\n') : 'tags: []',
+    '---', '', tagLine, '',
+    '- 作者：' + (b.author || '—'),
+    '- 译者：' + (b.translator || '—'),
+    '- 出版年份：' + (b.year || '—'),
+    '- ISBN：' + (b.isbn || '—'),
+    ''];
+  return lines.join('\n');
+}
+function overviewMd() {
+  var rd = books.filter(function (b) { return b.status === 'read'; });
+  var ur = books.filter(function (b) { return b.status !== 'read'; });
+  function row(b) {
+    var tg = bookTagsArr(b).map(function (t) { return '#' + t; }).join(' ');
+    return '- [[' + safeName(b.title) + ']] ｜ ' + (b.author || '—') + (b.year ? ' ｜ ' + b.year : '') + (tg ? ' ｜ ' + tg : '');
+  }
+  return ['---', 'generated: "极简书房"', '---', '',
+    '# 书架', '',
+    '共 ' + books.length + ' 本 ｜ 已读 ' + rd.length + ' ｜ 未读 ' + ur.length, '',
+    '## 未读（' + ur.length + '）', ur.map(row).join('\n') || '（无）', '',
+    '## 已读（' + rd.length + '）', rd.map(row).join('\n') || '（无）', ''].join('\n');
+}
+function splitFrontmatter(content) {
+  var m = (content || '').match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { fm: {}, body: content || '' };
+  var raw = m[1], lines = raw.split('\n'), i = 0, fm = {};
+  while (i < lines.length) {
+    var kv = lines[i].match(/^([^:#]+):\s*(.*)$/);
+    if (kv) {
+      var key = kv[1].trim(), val = kv[2].trim();
+      if (val === '') {
+        var items = [];
+        while (i + 1 < lines.length && /^\s+-\s+/.test(lines[i + 1])) { items.push(lines[i + 1].replace(/^\s+-\s+/, '').trim()); i++; }
+        fm[key] = items.length ? items : '';
+      } else { fm[key] = val.replace(/^"(.*)"$/, '$1'); }
+    }
+    i++;
+  }
+  return { fm: fm, body: content.slice(m[0].length) };
+}
+function buildFrontmatter(fm) {
+  var lines = ['---'];
+  Object.keys(fm).forEach(function (k) {
+    var v = fm[k];
+    if (Array.isArray(v)) {
+      if (v.length) { lines.push(k + ':'); v.forEach(function (x) { lines.push('  - ' + x); }); }
+      else lines.push(k + ': []');
+    } else if (typeof v === 'number') { lines.push(k + ': ' + v); }
+    else { lines.push(k + ': "' + String(v == null ? '' : v).replace(/"/g, '\\"') + '"'); }
+  });
+  lines.push('---');
+  return lines.join('\n');
+}
+function defaultBookBody(b) {
+  return '\n- 作者：' + (b.author || '—') + '\n- 译者：' + (b.translator || '—') + '\n- 出版年份：' + (b.year || '—') + '\n- ISBN：' + (b.isbn || '—') + '\n';
+}
+function getDirByPath(root, path) {
+  var parts = path.split('/').filter(Boolean);
+  var p = Promise.resolve(root);
+  parts.forEach(function (seg) { p = p.then(function (d) { return d.getDirectoryHandle(seg, { create: true }); }); });
+  return p;
+}
+function mergeWrite(fh, b) {
+  return fh.getFile().then(function (f) { return f.text(); }).catch(function () { return ''; })
+    .then(function (content) {
+      var parsed = splitFrontmatter(content);
+      var fm = parsed.fm;
+      fm.isbn = b.isbn || '';
+      fm.title = b.title;
+      fm.author = b.author || '';
+      fm.translator = b.translator || '';
+      fm.year = b.year || '';
+      fm.tags = bookTagsArr(b);
+      fm.status = b.status === 'read' ? 'read' : 'unread';
+      fm.volumes = b.volumes || 1;
+      fm.added = fmtDate(b.addedAt);
+      var body = parsed.body;
+      if (!body.trim()) body = defaultBookBody(b);
+      return fh.createWritable().then(function (w) {
+        return w.write(buildFrontmatter(fm) + '\n' + body).then(function () { return w.close(); });
+      });
+    });
+}
+function syncObsidian() {
+  if (!obsDir) return Promise.resolve();
+  return ensurePerm().then(function (ok) {
+    if (!ok) { showMsg('需要重新授权 Obsidian 文件夹'); return; }
+    var mergeMode = !!(notesDir && notesDir.trim());
+    var targetDir = mergeMode ? getDirByPath(obsDir, notesDir.trim()) : obsDir.getDirectoryHandle('书架', { create: true });
+    return targetDir.then(function (sub) {
+      var counts = {};
+      var seq = Promise.resolve();
+      books.forEach(function (b) {
+        seq = seq.then(function () {
+          var base = safeName(b.title);
+          var key = base.toLowerCase();
+          counts[key] = (counts[key] || 0) + 1;
+          var fname = counts[key] > 1 ? base + ' (' + String(b.isbn || b.id).slice(-4) + ')' : base;
+          return sub.getFileHandle(fname + '.md', { create: true }).then(function (fh) {
+            if (mergeMode) return mergeWrite(fh, b);
+            return fh.createWritable().then(function (w) {
+              return w.write(bookMd(b)).then(function () { return w.close(); });
+            });
+          }).then(function () { b._md = fname + '.md'; });
+        });
+      });
+      return seq.then(function () {
+        return obsDir.getFileHandle('书架.md', { create: true }).then(function (fh) {
+          return fh.createWritable().then(function (w) {
+            return w.write(overviewMd()).then(function () { return w.close(); });
+          });
+        });
+      }).then(function () {
+        localStorage.setItem(LS_KEY, JSON.stringify(books));
+        $('obsStatus').textContent = '已同步 ' + new Date().toLocaleTimeString();
+      });
+    });
+  }).catch(function (e) { showMsg('同步失败：' + e.message); });
+}
+function scheduleSync() {
+  if (!obsDir) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncObsidian, 800);
+}
+function deleteFromObsidian(b) {
+  if (!obsDir || !b._md) return Promise.resolve();
+  if (notesDir && notesDir.trim()) { showMsg('书目已移除；读后感文件已保留（未删除）'); return Promise.resolve(); }
+  return ensurePerm().then(function (ok) {
+    if (!ok) return;
+    return obsDir.getDirectoryHandle('书架').then(function (sub) { return sub.removeEntry(b._md); }).catch(function () {});
+  }).catch(function () {});
+}
+$('notesDir').value = notesDir;
+$('notesDir').addEventListener('change', function () {
+  notesDir = this.value.trim().replace(/\/+$/, '');
+  localStorage.setItem('shelf-notes-dir', notesDir);
+  showMsg(notesDir ? '读后感文件夹已设置：' + notesDir : '已清除读后感文件夹');
+  scheduleSync();
+});
+$('btnObs').onclick = function () {
+  if (!window.showDirectoryPicker) { showMsg('此浏览器不支持直连文件夹，请在电脑 Chrome/Edge 打开并连接'); return; }
+  window.showDirectoryPicker({ mode: 'readwrite' }).then(function (dir) {
+    obsDir = dir;
+    return idbSet('obsDir', dir).then(function () { updateObsUI(); return syncObsidian(); });
+  }).then(function () { showMsg('已连接 Obsidian 库，开始自动同步'); })
+    .catch(function (e) { if (e && e.name !== 'AbortError') showMsg('连接失败：' + e.message); });
+};
+
+/* ================= 表单（重建） ================= */
+function openForm(prefill, isEdit) {
+  prefill = prefill || {};
+  editingId = isEdit ? prefill.id : null;
+  $('fTitle').value = prefill.title || '';
+  $('fAuthor').value = prefill.author || '';
+  $('fTranslator').value = prefill.translator || '';
+  $('fYear').value = prefill.year || '';
+  $('fTags').value = (prefill.tags && prefill.tags.length) ? prefill.tags.join(',') : (prefill.category || '');
+  $('fVolumes').value = prefill.volumes || 1;
+  $('fStatus').value = prefill.status || 'unread';
+  $('fIsbnTip').textContent = prefill.isbn ? ('ISBN ' + prefill.isbn) : '无 ISBN（手动录入）';
+  $('fIsbnTip').dataset.isbn = prefill.isbn || '';
+  $('form').hidden = false;
+  $('fTitle').focus();
+}
+function closeForm() { $('form').hidden = true; editingId = null; }
+function saveForm() {
+  var title = $('fTitle').value.trim();
+  if (!title) { showMsg('书名不能为空'); return; }
+  var isbn = normISBN($('fIsbnTip').dataset.isbn || '');
+  var dup = books.find(function (b) { return b.isbn && isbn && b.isbn === isbn && b.id !== editingId; });
+  if (dup && !confirm('同 ISBN 已有《' + dup.title + '》，套装/多版本书可继续添加，确定？')) return;
+  var data = {
+    isbn: isbn, title: title,
+    author: $('fAuthor').value.trim(),
+    translator: $('fTranslator').value.trim(),
+    year: $('fYear').value.trim(),
+    tags: $('fTags').value.split(/[,，;；、]+/).map(function (t) { return t.trim().replace(/^#/, ''); }).filter(Boolean),
+    volumes: Math.max(1, parseInt($('fVolumes').value, 10) || 1),
+    status: $('fStatus').value
+  };
+  if (editingId) {
+    var b = books.find(function (x) { return x.id === editingId; });
+    if (b) { for (var k in data) b[k] = data[k]; showMsg('已更新'); }
+  } else {
+    data.id = Date.now(); data.addedAt = Date.now();
+    books.push(data);
+    showMsg('已入库');
+  }
+  save(); render(); closeForm();
+  $('isbn').value = ''; $('isbn').focus();
+}
 
 /* ================= GitHub 数据同步 ================= */
 var ghCfg = null;
@@ -764,7 +989,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.17 · 2026-09-16';
+$('appVer').textContent = 'v1.18 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
