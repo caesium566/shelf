@@ -71,6 +71,7 @@
   footer { margin-top:28px; font-size:11px; color:#bbb; line-height:1.8; }
   footer a { color:#999; cursor:pointer; }
 </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -173,7 +174,7 @@
 
 <footer>
   数据保存在本浏览器；连接 Obsidian 后书架内容会实时写入你的库（每书一篇笔记 + 书架.md 总览），Obsidian 里改动不会被回读。<br>
-  摄像头扫码需 Chrome/Edge 且 https 访问；iPhone 请扫码后点「粘贴」；USB 扫码枪即插即用。
+  摄像头扫码需 https 访问（自动双引擎识别）；无法识别时可用手机相机扫出 ISBN 后点「粘贴」；USB 扫码枪即插即用。
 </footer>
 
 <div id="msg"></div>
@@ -623,36 +624,107 @@ function queryISBN() {
     });
 }
 
-/* ================= 摄像头扫码 ================= */
-var stream = null, scanning = false, detector = null;
+/* ================= 摄像头扫码（系统引擎 + ZXing 兜底） ================= */
+var stream = null, scanning = false, detector = null, zxingTimer = null;
+var scanMode = null, scanFound = false, switchTimer = null;
+
+function onScanFound(text) {
+  if (scanFound) return;
+  scanFound = true;
+  var val = normISBN(text);
+  stopScan();
+  if (!val) { showMsg('识别成功但不是 ISBN，请重试'); return; }
+  $('isbn').value = val;
+  queryISBN();
+}
+function loadZxing() {
+  if (window.ZXing) return Promise.resolve();
+  return new Promise(function (res, rej) {
+    var urls = [
+      'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
+      'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'
+    ];
+    var i = 0;
+    var tryLoad = function () {
+      if (i >= urls.length) { rej(new Error('cdn fail')); return; }
+      var s = document.createElement('script');
+      s.src = urls[i++];
+      s.onload = res;
+      s.onerror = tryLoad;
+      document.head.appendChild(s);
+    };
+    tryLoad();
+  });
+}
+function startZxing(v) {
+  loadZxing().then(function () {
+    if (!scanning || scanFound) return;
+    scanMode = 'zxing';
+    var reader = new ZXing.MultiFormatReader();
+    var hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.UPC_A
+    ]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    reader.setHints(hints);
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var tick = function () {
+      if (!scanning || scanMode !== 'zxing' || scanFound) return;
+      if (v.readyState >= 2 && v.videoWidth) {
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        ctx.drawImage(v, 0, 0);
+        try {
+          var r = reader.decode(new ZXing.HTMLCanvasElementLuminanceSource(canvas));
+          if (r && r.getText()) { onScanFound(r.getText()); return; }
+        } catch (e) {}
+      }
+      zxingTimer = setTimeout(tick, 350);
+    };
+    showMsg('已切换备用识别引擎，对准条码…');
+    tick();
+  }).catch(function () {
+    showMsg('识别引擎加载失败（网络），请改用「粘贴」或手动输入');
+  });
+}
+function nativeTick(v) {
+  if (!scanning || scanMode !== 'native' || scanFound) return;
+  detector.detect(v).then(function (codes) {
+    if (codes && codes.length) { onScanFound(codes[0].rawValue); return; }
+    setTimeout(function () { nativeTick(v); }, 300);
+  }).catch(function () { setTimeout(function () { nativeTick(v); }, 300); });
+}
 function startScan() {
-  if (!('BarcodeDetector' in window) || !navigator.mediaDevices) {
-    showMsg('此浏览器不支持摄像头扫码，可手动输入或用扫码 App 后「粘贴」'); return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showMsg('此浏览器不支持摄像头，可手动输入或用扫码 App 后「粘贴」'); return;
   }
   if (location.protocol === 'file:') {
     showMsg('摄像头需 https 访问（用部署后的地址）；本地打开请用扫码枪或手动输入'); return;
   }
+  if (scanning) return;
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
     stream = s;
     var v = $('video'); v.srcObject = s;
     v.play().catch(function () {});
-    $('scanBox').hidden = false; scanning = true;
-    detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
-    var tick = function () {
-      if (!scanning) return;
-      detector.detect(v).then(function (codes) {
-        if (codes && codes.length) {
-          var val = normISBN(codes[0].rawValue);
-          stopScan(); $('isbn').value = val; queryISBN(); return;
-        }
-        setTimeout(tick, 300);
-      }).catch(function () { setTimeout(tick, 300); });
-    };
-    tick();
+    $('scanBox').hidden = false;
+    scanning = true; scanFound = false;
+    if ('BarcodeDetector' in window) {
+      scanMode = 'native';
+      detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
+      nativeTick(v);
+      // 系统引擎 6 秒无结果 → 换 ZXing
+      switchTimer = setTimeout(function () {
+        if (scanning && !scanFound && scanMode === 'native') startZxing(v);
+      }, 6000);
+    } else {
+      startZxing(v);
+    }
   }).catch(function () { showMsg('无法打开摄像头，请检查权限'); });
 }
 function stopScan() {
-  scanning = false;
+  scanning = false; scanMode = null;
+  clearTimeout(zxingTimer); clearTimeout(switchTimer);
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   $('scanBox').hidden = true;
 }
@@ -732,7 +804,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.3 · 2026-09-16';
+$('appVer').textContent = 'v1.4 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
