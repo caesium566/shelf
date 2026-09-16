@@ -43,7 +43,14 @@
   #scanBox { background:#000; border-radius:6px; overflow:hidden; margin:10px 0; position:relative; }
   #scanBox video { width:100%; display:block; }
   #scanBox .tip { position:absolute; left:0; right:0; top:12px; text-align:center; color:#fff; font-size:13px; text-shadow:0 1px 2px #000; }
-  #scanBox button { position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,.9); color:#000; border:none; height:34px; }
+  #scanBox .frame { position:absolute; left:50%; top:50%; width:64%; max-width:340px; aspect-ratio:1.55; transform:translate(-50%,-50%); pointer-events:none; }
+  #scanBox .frame i { position:absolute; width:28px; height:28px; border:3px solid #fff; opacity:.95; }
+  #scanBox .frame i:nth-child(1) { left:0; top:0; border-right:none; border-bottom:none; }
+  #scanBox .frame i:nth-child(2) { right:0; top:0; border-left:none; border-bottom:none; }
+  #scanBox .frame i:nth-child(3) { left:0; bottom:0; border-right:none; border-top:none; }
+  #scanBox .frame i:nth-child(4) { right:0; bottom:0; border-left:none; border-top:none; }
+  #scanStatus { position:absolute; left:0; right:0; bottom:16px; text-align:center; color:#fff; font-size:12px; text-shadow:0 1px 3px #000; }
+  #scanBox button { position:absolute; right:10px; top:10px; background:rgba(255,255,255,.9); color:#000; border:none; height:34px; }
 
   .filter { display:flex; gap:8px; margin:14px 0 10px; align-items:center; flex-wrap:wrap; }
   .filter .seg { display:flex; border:1px solid #ccc; border-radius:4px; overflow:hidden; }
@@ -124,7 +131,9 @@
 
 <div id="scanBox" hidden>
   <video id="video" playsinline muted></video>
-  <div class="tip">对准书本封底的 ISBN 条码</div>
+  <div class="frame"><i></i><i></i><i></i><i></i></div>
+  <div class="tip">将 ISBN 条码放入框内</div>
+  <div id="scanStatus">正在启动摄像头…</div>
   <button id="btnStop">取消</button>
 </div>
 
@@ -626,7 +635,9 @@ function queryISBN() {
 
 /* ================= 摄像头扫码（系统引擎 + ZXing 兜底） ================= */
 var stream = null, scanning = false, detector = null, zxingTimer = null;
-var scanMode = null, scanFound = false, switchTimer = null;
+var scanMode = null, scanFound = false, switchTimer = null, nativeFail = 0;
+
+function setScanStatus(t) { var el = $('scanStatus'); if (el) el.textContent = t; }
 
 function onScanFound(text) {
   if (scanFound) return;
@@ -660,6 +671,7 @@ function startZxing(v) {
   loadZxing().then(function () {
     if (!scanning || scanFound) return;
     scanMode = 'zxing';
+    setScanStatus('备用引擎识别中…（保持条码在框内）');
     var reader = new ZXing.MultiFormatReader();
     var hints = new Map();
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
@@ -685,15 +697,21 @@ function startZxing(v) {
     showMsg('已切换备用识别引擎，对准条码…');
     tick();
   }).catch(function () {
+    setScanStatus('');
     showMsg('识别引擎加载失败（网络），请改用「粘贴」或手动输入');
   });
 }
 function nativeTick(v) {
   if (!scanning || scanMode !== 'native' || scanFound) return;
   detector.detect(v).then(function (codes) {
+    nativeFail = 0;
     if (codes && codes.length) { onScanFound(codes[0].rawValue); return; }
     setTimeout(function () { nativeTick(v); }, 300);
-  }).catch(function () { setTimeout(function () { nativeTick(v); }, 300); });
+  }).catch(function () {
+    nativeFail++;
+    if (nativeFail >= 5) { startZxing(v); return; }
+    setTimeout(function () { nativeTick(v); }, 300);
+  });
 }
 function startScan() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -703,15 +721,19 @@ function startScan() {
     showMsg('摄像头需 https 访问（用部署后的地址）；本地打开请用扫码枪或手动输入'); return;
   }
   if (scanning) return;
+  setScanStatus('正在启动摄像头…');
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
     stream = s;
     var v = $('video'); v.srcObject = s;
     v.play().catch(function () {});
     $('scanBox').hidden = false;
-    scanning = true; scanFound = false;
+    scanning = true; scanFound = false; nativeFail = 0;
     if ('BarcodeDetector' in window) {
+      try {
+        detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
+      } catch (e) { startZxing(v); return; }
       scanMode = 'native';
-      detector = new BarcodeDetector({ formats: ['isbn_13', 'isbn_10', 'ean_13', 'ean_8', 'code_128'] });
+      setScanStatus('系统引擎识别中…（保持条码在框内）');
       nativeTick(v);
       // 系统引擎 6 秒无结果 → 换 ZXing
       switchTimer = setTimeout(function () {
@@ -720,10 +742,14 @@ function startScan() {
     } else {
       startZxing(v);
     }
-  }).catch(function () { showMsg('无法打开摄像头，请检查权限'); });
+  }).catch(function (e) {
+    setScanStatus('');
+    showMsg('摄像头错误：' + ((e && e.name) || '请检查系统权限'));
+  });
 }
 function stopScan() {
   scanning = false; scanMode = null;
+  setScanStatus('');
   clearTimeout(zxingTimer); clearTimeout(switchTimer);
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   $('scanBox').hidden = true;
@@ -804,7 +830,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.4 · 2026-09-16';
+$('appVer').textContent = 'v1.5 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
