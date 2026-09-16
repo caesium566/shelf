@@ -26,6 +26,12 @@
   #obsStatus { font-size:12px; color:#2e7d32; }
   #obsStatus.off { color:#999; }
 
+  #proxyForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
+  #proxyForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  #proxyForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
+  #proxyForm input.grow { flex:1; min-width:110px; }
+  #proxyForm .actions { display:flex; gap:8px; margin-top:6px; }
+  #proxyForm .actions button { height:36px; }
   #cloudForm { background:#fff; border:1px solid #e0e0d8; border-radius:6px; padding:14px; margin:10px 0; }
   #cloudForm .row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
   #cloudForm input { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px; background:#fff; }
@@ -114,6 +120,21 @@
 <div class="obs">
   <button id="btnCloud" class="ghost">☁ 云同步设置</button>
   <span id="cloudStatus" class="off">未设置</span>
+</div>
+
+<div class="obs">
+  <button id="btnProxy" class="ghost">📚 书库代理设置</button>
+  <span id="proxyStatus" class="off">未设置（查书走公开接口）</span>
+</div>
+
+<div id="proxyForm" hidden>
+  <div class="row"><input id="pUrl" class="grow" placeholder="代理地址，如 https://你的应用.leanapp.cn/query" style="width:100%"></div>
+  <div class="actions">
+    <button id="btnProxySave">保存</button>
+    <button id="btnProxyOff" class="ghost">清除</button>
+    <button id="btnProxyCancel" class="ghost">取消</button>
+  </div>
+  <div class="hint">代理用于快速查询中文书目；未设置时会直接查 OpenLibrary / Google，慢且中文书常查不到</div>
 </div>
 
 <div id="cloudForm" hidden>
@@ -209,10 +230,10 @@ function esc(s) {
 function ys(s) { return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
 function fmtDate(t) { try { return new Date(t).toISOString().slice(0, 10); } catch (e) { return ''; } }
 var msgTimer = null;
-function showMsg(t) {
+function showMsg(t, ms) {
   var m = $('msg'); m.textContent = t; m.style.opacity = 1;
   clearTimeout(msgTimer);
-  msgTimer = setTimeout(function () { m.style.opacity = 0; }, 2600);
+  msgTimer = setTimeout(function () { m.style.opacity = 0; }, ms || 2600);
 }
 
 /* ================= IndexedDB（保存 Obsidian 目录句柄） ================= */
@@ -284,6 +305,7 @@ function pullCloud() {
         lastSyncAt = serverTime;
         localStorage.setItem('shelf-sync-at', String(serverTime));
         updateCloudUI();
+updateProxyUI();
       }
     })
     .catch(function (e) {
@@ -593,8 +615,52 @@ function saveForm() {
 }
 
 /* ================= ISBN 查询 ================= */
+var proxyUrl = localStorage.getItem('shelf-proxy') || '';
+
+function updateProxyUI() {
+  var el = $('proxyStatus');
+  if (proxyUrl) {
+    el.textContent = '已设置 ' + proxyUrl.replace(/^https?:\/\//, '').slice(0, 32);
+    el.classList.remove('off');
+  } else {
+    el.textContent = '未设置（查书走公开接口）';
+    el.classList.add('off');
+  }
+}
+$('btnProxy').onclick = function () {
+  $('proxyForm').hidden = !$('proxyForm').hidden;
+  $('pUrl').value = proxyUrl;
+};
+$('btnProxyCancel').onclick = function () { $('proxyForm').hidden = true; };
+$('btnProxySave').onclick = function () {
+  var v = $('pUrl').value.trim();
+  if (v && !/^https?:\/\//.test(v)) { showMsg('地址要以 http:// 或 https:// 开头'); return; }
+  proxyUrl = v;
+  if (v) localStorage.setItem('shelf-proxy', v);
+  else localStorage.removeItem('shelf-proxy');
+  $('proxyForm').hidden = true;
+  updateProxyUI();
+  showMsg(v ? '书库代理已设置' : '已清除书库代理');
+};
+$('btnProxyOff').onclick = function () {
+  proxyUrl = '';
+  localStorage.removeItem('shelf-proxy');
+  $('proxyForm').hidden = true;
+  updateProxyUI();
+  showMsg('已清除书库代理');
+};
+
+function queryProxy(isbn) {
+  if (!proxyUrl) return Promise.resolve(undefined);
+  var sep = proxyUrl.indexOf('?') >= 0 ? '&' : '?';
+  return fetchTO(proxyUrl + sep + 'isbn=' + isbn, null, 8000)
+    .then(function (r) { if (!r.ok) return null; return r.json(); })
+    .then(function (d) { return (d && d.found && d.info) ? d.info : null; })
+    .catch(function () { return null; });
+}
+
 function fetchTO(url, opts, ms) {
-  ms = ms || 9000;
+  ms = ms || 7000;
   var ctrl = new AbortController();
   var timer = setTimeout(function () { ctrl.abort(); }, ms);
   return fetch(url, Object.assign({ signal: ctrl.signal }, opts || {})).then(function (r) {
@@ -638,12 +704,32 @@ function queryISBN() {
   if (!isbn) { showMsg('请输入或扫描 ISBN'); return; }
   var existing = books.find(function (b) { return b.isbn === isbn; });
   if (existing) { showMsg('已在书架：《' + existing.title + '》'); return; }
-  showMsg('正在查询 ' + isbn + ' …');
-  fetchOL(isbn).then(function (info) { return info || fetchGoogle(isbn); })
-    .then(function (info) {
-      if (info) { openForm(info, false); showMsg('已自动填充，核对后点保存'); }
-      else { openForm({ isbn: isbn }, false); showMsg('两个书库都没查到（可能网络原因），请手动填写'); }
+  if (proxyUrl) {
+    showMsg('正在查询 ' + isbn + '（书库代理）…', 6000);
+    queryProxy(isbn).then(function (info) {
+      if (info) { openForm(info, false); showMsg('已自动填充（国内书库），核对后点保存'); return; }
+      showMsg('代理未命中，转公开书库…', 4000);
+      return fetchOL(isbn).then(function (i2) {
+        if (i2) { openForm(i2, false); showMsg('已自动填充（公开书库），核对后点保存'); return null; }
+        return fetchGoogle(isbn);
+      }).then(function (i3) {
+        if (i3 === null) return;
+        if (i3) { openForm(i3, false); showMsg('已自动填充，核对后点保存'); }
+        else { openForm({ isbn: isbn }, false); showMsg('书库都未查到，已填好 ISBN，请补全信息'); }
+      });
     });
+    return;
+  }
+  showMsg('正在查询 ' + isbn + '（书库 1/2）…', 5000);
+  fetchOL(isbn).then(function (info) {
+    if (info) { openForm(info, false); showMsg('已自动填充，核对后点保存'); return null; }
+    showMsg('书库 1 未命中，尝试书库 2/2…', 5000);
+    return fetchGoogle(isbn);
+  }).then(function (info) {
+    if (info === null) return;
+    if (info) { openForm(info, false); showMsg('已自动填充，核对后点保存'); }
+    else { openForm({ isbn: isbn }, false); showMsg('书库都未查到，已填好 ISBN，请补全信息'); }
+  });
 }
 
 /* ================= 摄像头扫码（系统引擎 + ZXing 兜底） ================= */
@@ -866,7 +952,7 @@ updateCloudUI();
 if (cloudCfg) pullCloud();
 setInterval(function () { if (cloudCfg) pullCloud(); }, 30000);
 
-$('appVer').textContent = 'v1.8 · 2026-09-16';
+$('appVer').textContent = 'v1.10 · 2026-09-16';
 render();
 $('isbn').focus();
 </script>
