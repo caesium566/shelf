@@ -38,6 +38,10 @@
   #form input.grow { flex:1; min-width:110px; }
   #form .actions { display:flex; gap:8px; margin-top:6px; }
   #form .actions button { height:36px; }
+  #form .seg { display:flex; border:1px solid #ccc; border-radius:4px; overflow:hidden; }
+  #form .seg button { border:none; background:#fff; color:#666; height:36px; padding:0 12px; font-size:13px; }
+  #form .seg button.on { background:#1a1a1a; color:#fff; }
+  #form .seg.disabled { opacity:.35; pointer-events:none; }
   .hint { font-size:11px; color:#aaa; margin-top:6px; }
 
   #scanBox { background:#000; border-radius:6px; overflow:hidden; margin:10px 0; position:relative; }
@@ -102,7 +106,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.22</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.24</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -202,7 +206,13 @@
       <option value="unread">未读</option>
       <option value="read">已读</option>
     </select>
+    <input id="fSeries" class="grow" list="seriesList" placeholder="系列/套装（留空=单独的书，可下拉选已有系列）">
+    <span class="seg" id="seriesSeg">
+      <button type="button" data-m="single" class="on">分段</button>
+      <button type="button" data-m="shared">合篇</button>
+    </span>
     <span style="font-size:12px;color:#999;align-self:center" id="fIsbnTip"></span>
+    <datalist id="seriesList"></datalist>
   </div>
   <div class="actions">
     <button id="btnSave">保存</button>
@@ -281,6 +291,7 @@ function render() {
     if (b.year) meta += ' · ' + esc(b.year);
     var tags = bookTagsArr(b).map(clcExpand);
     if (tags.length) meta += ' · ' + tags.map(function (t) { return '#' + esc(t); }).join(' ');
+    if (b.series) meta += ' · 系列《' + esc(b.series) + '》' + (b.seriesMode !== 'single' ? '·合篇' : '');
     if (b.volumes > 1) meta += ' · 全' + b.volumes + '册';
     if (b.isbn) meta += ' · ISBN ' + esc(b.isbn);
     return '<li class="book ' + (b.status === 'read' ? 'done' : '') + '" data-id="' + b.id + '">' +
@@ -334,6 +345,25 @@ $('tagInput').addEventListener('keydown', function (e) {
 });
 $('tagInput').addEventListener('blur', chipsCommit);
 
+var seriesMode = 'single';
+function updateSeriesSeg() {
+  document.querySelectorAll('#seriesSeg button').forEach(function (btn) {
+    btn.classList.toggle('on', btn.dataset.m === seriesMode);
+  });
+  $('seriesSeg').classList.toggle('disabled', !$('fSeries').value.trim());
+}
+document.querySelectorAll('#seriesSeg button').forEach(function (btn) {
+  btn.onclick = function () { seriesMode = btn.dataset.m; updateSeriesSeg(); };
+});
+$('fSeries').addEventListener('input', updateSeriesSeg);
+function fillSeriesList() {
+  var list = [];
+  books.forEach(function (b) {
+    if (b.series && list.indexOf(b.series) < 0) list.push(b.series);
+  });
+  $('seriesList').innerHTML = list.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('');
+}
+
 var syncLog = [];
 try { syncLog = JSON.parse(localStorage.getItem('shelf-sync-log') || '[]'); } catch (e) {}
 function addLog(action, name) {
@@ -368,7 +398,7 @@ $('btnAudit').onclick = function () {
       books.forEach(function (b) {
         if (isCollection(b)) return;
         seq = seq.then(function () {
-          var fname = safeName(b.title) + '.md';
+          var fname = noteFileName(b);
           return dir.getFileHandle(fname).then(function (fh) {
             return fh.getFile().then(function (f) { return f.text(); }).then(function (content) {
               var body = (content || '').replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/\n*---\n\n\*\*书目信息\*\*[\s\S]*$/, '');
@@ -395,6 +425,10 @@ function bookTagsArr(b) {
   if (b.tags && b.tags.length) return b.tags;
   if (b.category) return [b.category];
   return [];
+}
+function noteFileName(b) {
+  if (b.series && b.seriesMode !== 'single') return safeName(b.series) + '.md';
+  return safeName(b.title) + '.md';
 }
 function safeName(s) {
   var n = (s || '未命名').replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, '').trim().slice(0, 80);
@@ -486,15 +520,15 @@ function getDirByPath(root, path) {
   return p;
 }
 function mergeWrite(fh, b) {
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
   return fh.getFile().then(function (f) { return f.text(); }).catch(function () { return ''; })
     .then(function (content) {
       var body = content || '';
-      // 幂等：先移除旧的书目信息块，避免重复同步时叠加
-      body = body.replace(/\n*---\n\n\*\*书目信息\*\*[\s\S]*$/, '\n');
-      // 没有正文（没有感想）→ 不动
+      var headRe = new RegExp('\\n*---\\n\\n\\*\\*书目信息·《' + escapeRe(b.title) + '》\\*\\*[\\s\\S]*?(?=\\n*---\\n\\n\\*\\*书目信息·|$)');
+      body = body.replace(headRe, '\n');
       if (!body.trim()) return Promise.resolve('empty');
       var tags = bookTagsArr(b);
-      var block = '\n---\n\n**书目信息**\n\n' +
+      var block = '\n---\n\n**书目信息·《' + b.title + '》**\n\n' +
         '- 作者：' + (b.author || '—') + '\n' +
         '- 译者：' + (b.translator || '—') + '\n' +
         '- 出版年份：' + (b.year || '—') + '\n' +
@@ -518,7 +552,7 @@ function syncObsidian() {
       books.forEach(function (b) {
         if (isCollection(b)) { addLog('跳过（设定集）', safeName(b.title) + '.md'); return; }
         seq = seq.then(function () {
-          var base = safeName(b.title);
+          var base = safeName((b.series && b.seriesMode !== 'single') ? b.series : (b.noteFile || b.title));
           var key = base.toLowerCase();
           counts[key] = (counts[key] || 0) + 1;
           var fname = counts[key] > 1 ? base + ' (' + String(b.isbn || b.id).slice(-4) + ')' : base;
@@ -596,6 +630,11 @@ function openForm(prefill, isEdit) {
     : (prefill.category ? [clcExpand(prefill.category)] : []);
   chipsRender();
   $('fVolumes').value = prefill.volumes || 1;
+  var presetSeries = prefill.series || prefill.noteFile || '';
+  $('fSeries').value = presetSeries;
+  seriesMode = (prefill.seriesMode) ? prefill.seriesMode : (prefill.noteFile ? 'shared' : 'single');
+  updateSeriesSeg();
+  fillSeriesList();
   $('fStatus').value = prefill.status || 'unread';
   $('fIsbnTip').textContent = prefill.isbn ? ('ISBN ' + prefill.isbn) : '无 ISBN（手动录入）';
   $('fIsbnTip').dataset.isbn = prefill.isbn || '';
@@ -616,6 +655,8 @@ function saveForm() {
     year: $('fYear').value.trim(),
     tags: currentTags.slice(),
     volumes: Math.max(1, parseInt($('fVolumes').value, 10) || 1),
+    series: $('fSeries').value.trim(),
+    seriesMode: seriesMode,
     status: $('fStatus').value
   };
   if (editingId) {
@@ -1112,7 +1153,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.22 · 2026-09-18';
+$('appVer').textContent = 'v1.24 · 2026-09-18';
 render();
 $('isbn').focus();
 </script>
