@@ -106,7 +106,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.24</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.25</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -319,7 +319,7 @@ var CLC = { A:'A-马克思主义', B:'B-哲学、宗教', C:'C-社会科学总�
   K:'K-历史、地理', N:'N-自然科学总论', O:'O-数理科学和化学', P:'P-天文学、地球科学',
   Q:'Q-生物科学', R:'R-医药、卫生', S:'S-农业科学', T:'T-工业技术', U:'U-交通运输',
   V:'V-航空、航天', X:'X-环境科学、安全科学', Z:'Z-综合性图书' };
-function clcExpand(t) { t = (t || '').trim(); return CLC[t] || t; }
+function clcExpand(t) { t = (t || '').trim(); return CLC[t] || CLC[t.toUpperCase()] || t; }
 var currentTags = [];
 function chipsRender() {
   var box = $('tagChips');
@@ -341,6 +341,9 @@ function chipsCommit() {
   if (v) { if (currentTags.indexOf(v) < 0) currentTags.push(v); $('tagInput').value = ''; chipsRender(); }
 }
 $('tagInput').addEventListener('keydown', function (e) {
+  if (e.key === ' ' || e.key === 'Enter' || e.key === ',' || e.key === '，') { e.preventDefault(); chipsCommit(); }
+});
+$('tagInput').addEventListener('keyup', function (e) {
   if (e.key === ' ' || e.key === 'Enter' || e.key === ',' || e.key === '，') { e.preventDefault(); chipsCommit(); }
 });
 $('tagInput').addEventListener('blur', chipsCommit);
@@ -527,7 +530,7 @@ function mergeWrite(fh, b) {
       var headRe = new RegExp('\\n*---\\n\\n\\*\\*书目信息·《' + escapeRe(b.title) + '》\\*\\*[\\s\\S]*?(?=\\n*---\\n\\n\\*\\*书目信息·|$)');
       body = body.replace(headRe, '\n');
       if (!body.trim()) return Promise.resolve('empty');
-      var tags = bookTagsArr(b);
+      var tags = bookTagsArr(b).map(clcExpand);
       var block = '\n---\n\n**书目信息·《' + b.title + '》**\n\n' +
         '- 作者：' + (b.author || '—') + '\n' +
         '- 译者：' + (b.translator || '—') + '\n' +
@@ -653,7 +656,7 @@ function saveForm() {
     author: $('fAuthor').value.trim(),
     translator: $('fTranslator').value.trim(),
     year: $('fYear').value.trim(),
-    tags: currentTags.slice(),
+    tags: currentTags.map(clcExpand),
     volumes: Math.max(1, parseInt($('fVolumes').value, 10) || 1),
     series: $('fSeries').value.trim(),
     seriesMode: seriesMode,
@@ -1153,7 +1156,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.24 · 2026-09-18';
+$('appVer').textContent = 'v1.25 · 2026-09-18';
 render();
 $('isbn').focus();
 </script>
