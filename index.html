@@ -108,7 +108,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.26</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.27</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -646,7 +646,7 @@ function openForm(prefill, isEdit) {
   $('fIsbnTip').textContent = prefill.isbn ? ('ISBN ' + prefill.isbn) : '无 ISBN（手动录入）';
   $('fIsbnTip').dataset.isbn = prefill.isbn || '';
   $('form').hidden = false;
-  $('fTitle').focus();
+  $('fTitle').focus({ preventScroll: true });
 }
 function closeForm() { $('form').hidden = true; editingId = null; }
 function saveForm() {
@@ -674,8 +674,10 @@ function saveForm() {
     books.push(data);
     showMsg('已入库');
   }
+  var keepY = window.scrollY;
   save(); render(); closeForm();
-  $('isbn').value = ''; $('isbn').focus();
+  window.scrollTo(0, keepY);
+  $('isbn').value = ''; $('isbn').focus({ preventScroll: true });
 }
 
 /* ================= GitHub 数据同步 ================= */
@@ -1160,9 +1162,9 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.26 · 2026-09-19';
+$('appVer').textContent = 'v1.27 · 2026-09-19';
 render();
-$('isbn').focus();
+$('isbn').focus({ preventScroll: true });
 </script>
 </body>
 </html>
