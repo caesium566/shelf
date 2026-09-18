@@ -81,6 +81,8 @@
   .chips .chip b:hover { opacity:1; }
   .chips input { border:none; outline:none; flex:1; min-width:80px; font-size:14px; padding:2px; background:transparent; }
   #panelOverlay { position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:20; }
+  #panelOverlay[hidden] { display:none; }
+  #panelOverlay[hidden] { display:none; }
   #panel { background:#fff; border-radius:8px; max-width:480px; width:92%; max-height:70vh; overflow:auto; padding:16px; }
   #panelTitle { font-weight:700; margin-bottom:10px; }
   #panelBody h4 { margin:12px 0 6px; font-size:14px; }
@@ -100,7 +102,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.21</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.22</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -535,6 +537,17 @@ function syncObsidian() {
         });
       });
       return seq.then(function () {
+        var logMd = '# 同步日志\n\n' + (syncLog.length
+          ? syncLog.slice(0, 50).map(function (l) {
+              return '- ' + new Date(l.t).toLocaleString() + ' · ' + l.action + ' · ' + l.name;
+            }).join('\n')
+          : '（暂无）') + '\n';
+        return obsDir.getFileHandle('同步日志.md', { create: true }).then(function (fh) {
+          return fh.createWritable().then(function (w) {
+            return w.write(logMd).then(function () { return w.close(); });
+          });
+        });
+      }).then(function () {
         localStorage.setItem(LS_KEY, JSON.stringify(books));
         $('obsStatus').textContent = '已同步 ' + new Date().toLocaleTimeString();
       });
@@ -1099,7 +1112,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.21 · 2026-09-18';
+$('appVer').textContent = 'v1.22 · 2026-09-18';
 render();
 $('isbn').focus();
 </script>
