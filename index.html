@@ -64,7 +64,7 @@
   ul#list { list-style:none; }
   li.book { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #e5e5dd; border-radius:6px; padding:10px 12px; margin-bottom:8px; }
   li.book.done { opacity:.55; }
-  li.book.done .t { text-decoration:line-through; }
+  li.book.done .t { color:#888; }
   .toggle { width:30px; height:30px; min-width:30px; border-radius:50%; border:1.5px solid #1a1a1a; background:#fff; color:#1a1a1a; font-size:15px; line-height:1; padding:0; }
   li.book.done .toggle { background:#1a1a1a; color:#fff; }
   .info { flex:1; min-width:0; }
@@ -75,6 +75,19 @@
   .edit:hover { color:#1a1a1a; } .del:hover { color:#c0392b; }
   .empty { text-align:center; color:#bbb; padding:40px 0; font-size:14px; }
 
+  .chips { display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:6px 8px; border:1px solid #ccc; border-radius:4px; background:#fff; min-height:40px; flex:1; min-width:110px; }
+  .chips .chip { display:inline-flex; align-items:center; background:#1a1a1a; color:#fff; border-radius:12px; padding:2px 10px; font-size:13px; }
+  .chips .chip b { cursor:pointer; margin-left:6px; font-weight:400; opacity:.7; }
+  .chips .chip b:hover { opacity:1; }
+  .chips input { border:none; outline:none; flex:1; min-width:80px; font-size:14px; padding:2px; background:transparent; }
+  #panelOverlay { position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:20; }
+  #panel { background:#fff; border-radius:8px; max-width:480px; width:92%; max-height:70vh; overflow:auto; padding:16px; }
+  #panelTitle { font-weight:700; margin-bottom:10px; }
+  #panelBody h4 { margin:12px 0 6px; font-size:14px; }
+  #panelBody ul { margin-left:18px; font-size:13px; line-height:1.9; }
+  #panelBody .loglist { list-style:none; margin-left:0; }
+  #panel .actions { margin-top:12px; text-align:right; }
+  #panel .actions button { height:32px; }
   #msg { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#1a1a1a; color:#fff;
          padding:8px 16px; border-radius:20px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; z-index:9; }
   footer { margin-top:28px; font-size:11px; color:#bbb; line-height:1.8; }
@@ -87,7 +100,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.20</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">v1.21</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -104,6 +117,8 @@
 
 <div class="obs">
   <button id="btnManual" class="ghost">手动添加书本</button>
+  <button id="btnAudit" class="ghost">状态核对</button>
+  <button id="btnSyncLog" class="ghost">同步日志</button>
   <span style="font-size:12px;color:#aaa;align-self:center">外文书、同人本等无 ISBN 的书从这里录入</span>
 </div>
 
@@ -172,7 +187,7 @@
   <div class="row">
     <input id="fYear" placeholder="出版年份" inputmode="numeric" style="width:110px">
     <input id="fVolumes" placeholder="册数" inputmode="numeric" value="1" style="width:64px">
-    <input id="fTags" class="grow" list="catList" placeholder="标签，逗号分隔（如：小说, 书架A）">
+    <div class="chips grow" id="tagChips"><input id="tagInput" placeholder="标签，空格分隔（中图法单字母自动展开）"></div>
     <datalist id="catList">
       <option value="文学"></option><option value="小说"></option><option value="历史"></option>
       <option value="哲学"></option><option value="社会科学"></option><option value="自然科学"></option>
@@ -200,7 +215,6 @@
     <button data-s="unread">未读</button>
     <button data-s="read">已读</button>
   </div>
-  <select id="catSel"><option value="all">全部标签</option></select>
   <input id="search" placeholder="搜索书名 / 作者">
 </div>
 
@@ -210,6 +224,14 @@
   数据保存在本浏览器；连接 Obsidian 后书架内容会实时写入你的库（每书一篇笔记 + 书架.md 总览），Obsidian 里改动不会被回读。<br>
   摄像头扫码需 https 访问（自动双引擎识别）；无法识别时可用手机相机扫出 ISBN 后点「粘贴」；USB 扫码枪即插即用。
 </footer>
+
+<div id="panelOverlay" hidden>
+  <div id="panel">
+    <div id="panelTitle"></div>
+    <div id="panelBody"></div>
+    <div class="actions"><button id="btnPanelClose" class="ghost">关闭</button></div>
+  </div>
+</div>
 
 <div id="msg"></div>
 
@@ -239,20 +261,11 @@ function showMsg(t, ms) {
 }
 
 function render() {
-  var tagSet = [];
-  books.forEach(function (b) {
-    bookTagsArr(b).forEach(function (t) { if (t && tagSet.indexOf(t) < 0) tagSet.push(t); });
-  });
-  var catSel = $('catSel'), cur = catSel.value;
-  catSel.innerHTML = '<option value="all">全部标签</option>' +
-    tagSet.map(function (t) { return '<option value="' + esc(t) + '">#' + esc(t) + '</option>'; }).join('');
-  catSel.value = (tagSet.indexOf(cur) >= 0) ? cur : 'all';
-
   var kw = $('search').value.trim().toLowerCase();
   var shown = books.filter(function (b) {
     if (filterStatus !== 'all' && b.status !== filterStatus) return false;
-    if (catSel.value !== 'all' && bookTagsArr(b).indexOf(catSel.value) < 0) return false;
-    if (kw && (b.title + ' ' + (b.author || '') + ' ' + (b.isbn || '')).toLowerCase().indexOf(kw) < 0) return false;
+    var hay = (b.title + ' ' + (b.author || '') + ' ' + bookTagsArr(b).map(clcExpand).join(' ') + ' ' + (b.isbn || '')).toLowerCase();
+    if (kw && hay.indexOf(kw) < 0) return false;
     return true;
   }).sort(function (a, b) { return b.addedAt - a.addedAt; });
 
@@ -261,21 +274,20 @@ function render() {
 
   if (!shown.length) { $('list').innerHTML = '<li class="empty">还没有书，先扫一本吧</li>'; return; }
   $('list').innerHTML = shown.map(function (b) {
-    var meta = esc(b.author || '\u2014');
+    var meta = esc(b.author || '—');
     if (b.translator) meta += ' / 译 ' + esc(b.translator);
     if (b.year) meta += ' · ' + esc(b.year);
-    var tags = bookTagsArr(b);
+    var tags = bookTagsArr(b).map(clcExpand);
     if (tags.length) meta += ' · ' + tags.map(function (t) { return '#' + esc(t); }).join(' ');
     if (b.volumes > 1) meta += ' · 全' + b.volumes + '册';
     if (b.isbn) meta += ' · ISBN ' + esc(b.isbn);
     return '<li class="book ' + (b.status === 'read' ? 'done' : '') + '" data-id="' + b.id + '">' +
-      '<button class="toggle">' + (b.status === 'read' ? '\u2713' : '\u25cb') + '</button>' +
+      '<button class="toggle">' + (b.status === 'read' ? '✓' : '○') + '</button>' +
       '<div class="info"><div class="t">' + esc(b.title) + '</div><div class="m">' + meta + '</div></div>' +
-      '<button class="edit">编辑</button><button class="del">\u00d7</button></li>';
+      '<button class="edit">编辑</button><button class="del">×</button></li>';
   }).join('');
 }
 
-/* ================= IndexedDB（保存 Obsidian 目录句柄） ================= */
 function idbOpen() { return new Promise(function (res, rej) {
   var r = indexedDB.open('shelf-db', 1);
   r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
@@ -287,6 +299,94 @@ function idbSet(k, v) { return idbOpen().then(function (db) { return new Promise
 function idbGet(k) { return idbOpen().then(function (db) { return new Promise(function (res, rej) {
   var r = db.transaction('kv').objectStore('kv').get(k);
   r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }); }
+
+/* ================= 中图法映射 / 标签芯片 / 同步日志 / 状态核对 ================= */
+var CLC = { A:'A-马克思主义', B:'B-哲学、宗教', C:'C-社会科学总论', D:'D-政治、法律', E:'E-军事',
+  F:'F-经济', G:'G-文化、科学、教育、体育', H:'H-语言、文字', I:'I-文学', J:'J-艺术',
+  K:'K-历史、地理', N:'N-自然科学总论', O:'O-数理科学和化学', P:'P-天文学、地球科学',
+  Q:'Q-生物科学', R:'R-医药、卫生', S:'S-农业科学', T:'T-工业技术', U:'U-交通运输',
+  V:'V-航空、航天', X:'X-环境科学、安全科学', Z:'Z-综合性图书' };
+function clcExpand(t) { t = (t || '').trim(); return CLC[t] || t; }
+var currentTags = [];
+function chipsRender() {
+  var box = $('tagChips');
+  if (!box) return;
+  box.querySelectorAll('.chip').forEach(function (c) { c.remove(); });
+  currentTags.forEach(function (t, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = t;
+    var x = document.createElement('b');
+    x.textContent = '×';
+    x.onclick = function () { currentTags.splice(i, 1); chipsRender(); };
+    chip.appendChild(x);
+    box.insertBefore(chip, $('tagInput'));
+  });
+}
+function chipsCommit() {
+  var v = clcExpand($('tagInput').value.replace(/^#/, ''));
+  if (v) { if (currentTags.indexOf(v) < 0) currentTags.push(v); $('tagInput').value = ''; chipsRender(); }
+}
+$('tagInput').addEventListener('keydown', function (e) {
+  if (e.key === ' ' || e.key === 'Enter' || e.key === ',' || e.key === '，') { e.preventDefault(); chipsCommit(); }
+});
+$('tagInput').addEventListener('blur', chipsCommit);
+
+var syncLog = [];
+try { syncLog = JSON.parse(localStorage.getItem('shelf-sync-log') || '[]'); } catch (e) {}
+function addLog(action, name) {
+  syncLog.unshift({ t: Date.now(), action: action, name: name });
+  if (syncLog.length > 100) syncLog.length = 100;
+  localStorage.setItem('shelf-sync-log', JSON.stringify(syncLog));
+}
+function openPanel(title, content) {
+  $('panelTitle').textContent = title;
+  $('panelBody').innerHTML = content;
+  $('panelOverlay').hidden = false;
+}
+$('btnPanelClose').onclick = function () { $('panelOverlay').hidden = true; };
+$('btnSyncLog').onclick = function () {
+  var h = syncLog.length ? syncLog.map(function (l) {
+    return '<li>' + new Date(l.t).toLocaleString() + ' · ' + esc(l.action) + ' · ' + esc(l.name) + '</li>';
+  }).join('') : '<li>暂无记录（同步一次后这里会显示）</li>';
+  openPanel('同步日志（最近 ' + syncLog.length + ' 条）', '<ul class="loglist">' + h + '</ul>');
+};
+function isCollection(b) {
+  return bookTagsArr(b).some(function (t) { return t.indexOf('设定集') >= 0; });
+}
+$('btnAudit').onclick = function () {
+  if (!obsDir) { showMsg('需先在电脑端连接 Obsidian 库'); return; }
+  if (!notesDir || !notesDir.trim()) { showMsg('需先填写读后感文件夹'); return; }
+  showMsg('正在核对…');
+  ensurePerm().then(function (ok) {
+    if (!ok) return;
+    return getDirByPath(obsDir, notesDir.trim()).then(function (dir) {
+      var readNoNote = [], unreadHasNote = [];
+      var seq = Promise.resolve();
+      books.forEach(function (b) {
+        if (isCollection(b)) return;
+        seq = seq.then(function () {
+          var fname = safeName(b.title) + '.md';
+          return dir.getFileHandle(fname).then(function (fh) {
+            return fh.getFile().then(function (f) { return f.text(); }).then(function (content) {
+              var body = (content || '').replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/\n*---\n\n\*\*书目信息\*\*[\s\S]*$/, '');
+              var hasNote = body.replace(/^\s*#.*?$/m, '').trim().length > 0;
+              if (b.status === 'read' && !hasNote) readNoNote.push(b);
+              if (b.status !== 'read' && hasNote) unreadHasNote.push(b);
+            });
+          }).catch(function () { if (b.status === 'read') readNoNote.push(b); });
+        });
+      });
+      return seq.then(function () {
+        var h = '<h4>已读但没有读后感（' + readNoNote.length + '）</h4><ul>' +
+          readNoNote.map(function (b) { return '<li>' + esc(b.title) + '</li>'; }).join('') + '</ul>' +
+          '<h4>未读但有读后感（' + unreadHasNote.length + '）</h4><ul>' +
+          unreadHasNote.map(function (b) { return '<li>' + esc(b.title) + '</li>'; }).join('') + '</ul>';
+        openPanel('状态核对', h);
+      });
+    });
+  }).catch(function (e) { showMsg('核对失败：' + e.message); });
+};
 
 /* ================= Obsidian 同步（重建） ================= */
 function bookTagsArr(b) {
@@ -390,7 +490,7 @@ function mergeWrite(fh, b) {
       // 幂等：先移除旧的书目信息块，避免重复同步时叠加
       body = body.replace(/\n*---\n\n\*\*书目信息\*\*[\s\S]*$/, '\n');
       // 没有正文（没有感想）→ 不动
-      if (!body.trim()) return Promise.resolve();
+      if (!body.trim()) return Promise.resolve('empty');
       var tags = bookTagsArr(b);
       var block = '\n---\n\n**书目信息**\n\n' +
         '- 作者：' + (b.author || '—') + '\n' +
@@ -401,7 +501,7 @@ function mergeWrite(fh, b) {
         '- 状态：' + (b.status === 'read' ? '已读' : '未读') + '\n';
       return fh.createWritable().then(function (w) {
         return w.write(body.replace(/\s+$/, '') + '\n' + block).then(function () { return w.close(); });
-      });
+      }).then(function () { return 'updated'; });
     });
 }
 function syncObsidian() {
@@ -414,6 +514,7 @@ function syncObsidian() {
       var counts = {};
       var seq = Promise.resolve();
       books.forEach(function (b) {
+        if (isCollection(b)) { addLog('跳过（设定集）', safeName(b.title) + '.md'); return; }
         seq = seq.then(function () {
           var base = safeName(b.title);
           var key = base.toLowerCase();
@@ -422,13 +523,15 @@ function syncObsidian() {
           if (mergeMode) {
             return sub.getFileHandle(fname + '.md').then(function (fh) {
               return mergeWrite(fh, b);
-            }).catch(function () { /* 感想文件不存在，跳过 */ });
+            }).then(function (r) {
+              addLog(r === 'updated' ? '更新书目块' : '跳过（无正文）', fname + '.md');
+            }).catch(function () { addLog('跳过（无感想文件）', fname + '.md'); });
           }
           return sub.getFileHandle(fname + '.md', { create: true }).then(function (fh) {
             return fh.createWritable().then(function (w) {
               return w.write(bookMd(b)).then(function () { return w.close(); });
             });
-          }).then(function () { b._md = fname + '.md'; });
+          }).then(function () { b._md = fname + '.md'; addLog('写入', '书架/' + fname + '.md'); });
         });
       });
       return seq.then(function () {
@@ -475,7 +578,10 @@ function openForm(prefill, isEdit) {
   $('fAuthor').value = prefill.author || '';
   $('fTranslator').value = prefill.translator || '';
   $('fYear').value = prefill.year || '';
-  $('fTags').value = (prefill.tags && prefill.tags.length) ? prefill.tags.join(',') : (prefill.category || '');
+  currentTags = (prefill.tags && prefill.tags.length)
+    ? prefill.tags.map(clcExpand)
+    : (prefill.category ? [clcExpand(prefill.category)] : []);
+  chipsRender();
   $('fVolumes').value = prefill.volumes || 1;
   $('fStatus').value = prefill.status || 'unread';
   $('fIsbnTip').textContent = prefill.isbn ? ('ISBN ' + prefill.isbn) : '无 ISBN（手动录入）';
@@ -495,7 +601,7 @@ function saveForm() {
     author: $('fAuthor').value.trim(),
     translator: $('fTranslator').value.trim(),
     year: $('fYear').value.trim(),
-    tags: $('fTags').value.split(/[,，;；、]+/).map(function (t) { return t.trim().replace(/^#/, ''); }).filter(Boolean),
+    tags: currentTags.slice(),
     volumes: Math.max(1, parseInt($('fVolumes').value, 10) || 1),
     status: $('fStatus').value
   };
@@ -945,7 +1051,6 @@ document.querySelectorAll('.seg button').forEach(function (btn) {
     btn.classList.add('on'); filterStatus = btn.dataset.s; render();
   };
 });
-$('catSel').onchange = render;
 $('search').oninput = render;
 
 $('list').addEventListener('click', function (e) {
@@ -994,7 +1099,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v1.20 · 2026-09-17';
+$('appVer').textContent = 'v1.21 · 2026-09-18';
 render();
 $('isbn').focus();
 </script>
