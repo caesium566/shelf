@@ -123,7 +123,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.0</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.1</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -157,7 +157,6 @@
       <h4>Obsidian 同步</h4>
       <div class="srow"><button id="btnObs" class="ghost">连接 Obsidian 库</button><span id="obsStatus" class="off">未连接</span></div>
       <div class="srow"><span class="slabel">读后感文件夹</span><input id="notesDir" placeholder="库内路径，如：1-信息接收档案/书本（留空=不写入）"></div>
-      <div class="srow"><button id="btnAudit" class="ghost">状态核对</button><button id="btnSyncLog" class="ghost">同步日志</button></div>
     </section>
     <section>
       <h4>书库代理</h4>
@@ -372,6 +371,7 @@ function tagsOf(b) { return bookTagsArr(b).map(clcExpand); }
 $('btnFilterTag').onclick = function () {
   var list = [];
   books.forEach(function (b) { tagsOf(b).forEach(function (t) { if (t && list.indexOf(t) < 0) list.push(t); }); });
+  list.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
   var h = list.length ? list.map(function (t) {
     var n = books.filter(function (b) { return tagsOf(b).indexOf(t) >= 0; }).length;
     return '<li><a href="javascript:void(0)" data-tag="' + esc(t) + '">#' + esc(t) + '（' + n + ' 本）</a></li>';
@@ -384,6 +384,7 @@ $('btnFilterTag').onclick = function () {
 $('btnFilterSeries').onclick = function () {
   var list = [];
   books.forEach(function (b) { if (b.series && list.indexOf(b.series) < 0) list.push(b.series); });
+  list.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
   var h = list.length ? list.map(function (s) {
     var n = books.filter(function (b) { return b.series === s; }).length;
     return '<li><a href="javascript:void(0)" data-series="' + esc(s) + '">《' + esc(s) + '》（' + n + ' 本）</a></li>';
@@ -1214,7 +1215,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v2.0 · 2026-09-19';
+$('appVer').textContent = 'v2.1 · 2026-09-19';
 render();
 $('isbn').focus({ preventScroll: true });
 </script>
