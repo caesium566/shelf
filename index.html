@@ -57,6 +57,9 @@
   .fchip b { cursor:pointer; margin-left:5px; font-weight:400; opacity:.7; }
   .fchip b:hover { opacity:1; }
   .picklist { list-style:none; margin:0; }
+  .picklist li { cursor:pointer; padding:8px 6px; border-bottom:1px solid #f2f2ee; font-size:14px; border-radius:4px; }
+  .picklist li:hover { background:#f7f7f2; }
+  .picklist li.on { background:#1a1a1a; color:#fff; }
   .picklist li a { display:block; padding:7px 4px; color:#1a1a1a; text-decoration:none; border-bottom:1px solid #f2f2ee; font-size:14px; }
   .picklist li a:hover { background:#f7f7f2; }
   .hint { font-size:11px; color:#aaa; margin-top:6px; }
@@ -123,7 +126,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.1</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.3</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -284,7 +287,7 @@ function render() {
   var kw = $('search').value.trim().toLowerCase();
   var shown = books.filter(function (b) {
     if (filterStatus !== 'all' && b.status !== filterStatus) return false;
-    if (activeTag && tagsOf(b).indexOf(activeTag) < 0) return false;
+    if (activeTags.length && !activeTags.some(function (t) { return tagsOf(b).indexOf(t) >= 0; })) return false;
     if (activeSeries && b.series !== activeSeries) return false;
     var hay = (b.title + ' ' + (b.author || '') + ' ' + tagsOf(b).join(' ') + ' ' + (b.isbn || '')).toLowerCase();
     if (kw && hay.indexOf(kw) < 0) return false;
@@ -359,7 +362,7 @@ $('tagInput').addEventListener('keyup', function (e) {
 });
 $('tagInput').addEventListener('blur', chipsCommit);
 
-var activeTag = '', activeSeries = '';
+var activeTags = [], activeSeries = '';
 var SKIP_TAGS = ['设定集', '同人', '非出版', '外文'];
 function isCollection(b) {
   return bookTagsArr(b).some(function (t) {
@@ -374,11 +377,17 @@ $('btnFilterTag').onclick = function () {
   list.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
   var h = list.length ? list.map(function (t) {
     var n = books.filter(function (b) { return tagsOf(b).indexOf(t) >= 0; }).length;
-    return '<li><a href="javascript:void(0)" data-tag="' + esc(t) + '">#' + esc(t) + '（' + n + ' 本）</a></li>';
+    return '<li class="' + (activeTags.indexOf(t) >= 0 ? 'on' : '') + '" data-tag="' + esc(t) + '">#' + esc(t) + '（' + n + ' 本）</li>';
   }).join('') : '<li>暂无标签</li>';
-  openPanel('按标签筛选', '<ul class="picklist">' + h + '</ul>');
-  document.querySelectorAll('#panelBody [data-tag]').forEach(function (a) {
-    a.onclick = function () { activeTag = a.dataset.tag; activeSeries = ''; render(); $('panelOverlay').hidden = true; };
+  openPanel('按标签筛选（可多选）', '<ul class="picklist">' + h + '</ul><div class="hint" style="margin-top:8px">点击选择/取消，可多选；筛选立即生效，关闭面板后继续</div>');
+  document.querySelectorAll('#panelBody [data-tag]').forEach(function (li) {
+    li.onclick = function () {
+      var t = li.dataset.tag, i = activeTags.indexOf(t);
+      if (i >= 0) activeTags.splice(i, 1); else activeTags.push(t);
+      activeSeries = '';
+      render();
+      li.classList.toggle('on', activeTags.indexOf(t) >= 0);
+    };
   });
 };
 $('btnFilterSeries').onclick = function () {
@@ -387,24 +396,24 @@ $('btnFilterSeries').onclick = function () {
   list.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
   var h = list.length ? list.map(function (s) {
     var n = books.filter(function (b) { return b.series === s; }).length;
-    return '<li><a href="javascript:void(0)" data-series="' + esc(s) + '">《' + esc(s) + '》（' + n + ' 本）</a></li>';
+    return '<li data-series="' + esc(s) + '">《' + esc(s) + '》（' + n + ' 本）</li>';
   }).join('') : '<li>暂无系列</li>';
   openPanel('按系列筛选', '<ul class="picklist">' + h + '</ul>');
-  document.querySelectorAll('#panelBody [data-series]').forEach(function (a) {
-    a.onclick = function () { activeSeries = a.dataset.series; activeTag = ''; render(); $('panelOverlay').hidden = true; };
+  document.querySelectorAll('#panelBody [data-series]').forEach(function (li) {
+    li.onclick = function () { activeSeries = li.dataset.series; activeTags = []; render(); $('panelOverlay').hidden = true; };
   });
 };
 function renderActiveFilters() {
-  var h = '';
-  if (activeTag) h += '<span class="fchip">#' + esc(activeTag) + ' <b data-clear="tag">×</b></span>';
+  var h = activeTags.map(function (t, i) {
+    return '<span class="fchip">#' + esc(t) + ' <b data-ti="' + i + '">×</b></span>';
+  }).join('');
   if (activeSeries) h += '<span class="fchip">系列《' + esc(activeSeries) + '》 <b data-clear="series">×</b></span>';
   $('activeFilters').innerHTML = h;
-  document.querySelectorAll('#activeFilters [data-clear]').forEach(function (el) {
-    el.onclick = function () {
-      if (el.dataset.clear === 'tag') activeTag = ''; else activeSeries = '';
-      render();
-    };
+  document.querySelectorAll('#activeFilters [data-ti]').forEach(function (el) {
+    el.onclick = function () { activeTags.splice(+el.dataset.ti, 1); render(); };
   });
+  var cs = document.querySelector('#activeFilters [data-clear="series"]');
+  if (cs) cs.onclick = function () { activeSeries = ''; render(); };
 }
 
 var seriesMode = 'single';
@@ -750,6 +759,8 @@ function saveForm() {
 var ghCfg = null;
 try { ghCfg = JSON.parse(localStorage.getItem('shelf-gh') || 'null'); } catch (e) { ghCfg = null; }
 var ghLastSync = 0, ghDirty = false, ghTimer = null, ghPulling = false;
+var deletedIds = [];
+try { deletedIds = JSON.parse(localStorage.getItem('shelf-deleted') || '[]'); } catch (e) {}
 try { ghLastSync = +(localStorage.getItem('shelf-gh-ts') || 0); } catch (e) {}
 
 function ghUrl() { return 'https://api.github.com/repos/' + ghCfg.user + '/' + ghCfg.repo + '/contents/data.json'; }
@@ -790,13 +801,14 @@ function ghApplyRemote(data) {
 function ghPush() {
   if (!ghCfg || !ghDirty) return Promise.resolve();
   var localTs = +(localStorage.getItem('shelf-local-ts') || 0);
-  return fetch(ghUrl(), { headers: ghHeaders() }).then(function (r) {
+  return fetchTO(ghUrl(), { headers: ghHeaders() }, 10000).then(function (r) {
     if (r.status === 404) return { sha: null, remote: null };
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json().then(function (f) { return { sha: f.sha, remote: JSON.parse(b64d(f.content)) }; });
   }).then(function (cur) {
-    if (cur.remote && Array.isArray(cur.remote.books) && cur.remote.updatedAt > ghLastSync) {
-      var merged = mergeBooksArr(books, cur.remote.books);
+    var remoteBooks = (cur.remote && Array.isArray(cur.remote.books)) ? cur.remote.books.filter(function (b) { return deletedIds.indexOf(b.id) < 0; }) : null;
+    if (cur.remote && remoteBooks && cur.remote.updatedAt > ghLastSync) {
+      var merged = mergeBooksArr(books, remoteBooks);
       var changed = JSON.stringify(merged) !== JSON.stringify(books);
       books = merged;
       localStorage.setItem(LS_KEY, JSON.stringify(books));
@@ -805,11 +817,11 @@ function ghPush() {
     if (!books.length && !cur.sha) { ghDirty = false; return; } // 两端都空，不推
     var payload = {
       message: 'shelf sync',
-      content: b64e(JSON.stringify({ books: ghBooksClean(), updatedAt: Date.now() })),
+      content: b64e(JSON.stringify({ books: ghBooksClean(), updatedAt: Date.now(), deleted: deletedIds })),
       branch: (ghCfg.branch || 'main')
     };
     if (cur.sha) payload.sha = cur.sha;
-    return fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(payload) })
+    return fetchTO(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(payload) }, 10000)
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (res) {
         ghDirty = false;
@@ -826,7 +838,7 @@ function ghPush() {
 function ghPull() {
   if (!ghCfg || ghPulling) return Promise.resolve();
   ghPulling = true;
-  return fetch(ghUrl(), { headers: ghHeaders() }).then(function (r) {
+  return fetchTO(ghUrl(), { headers: ghHeaders() }, 10000).then(function (r) {
     if (r.status === 404) { if (books.length) { ghDirty = true; return ghPush(); } return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
@@ -835,11 +847,29 @@ function ghPull() {
     var data = JSON.parse(b64d(f.content));
     var t = data.updatedAt || 0;
     if (t > ghLastSync) {
-      if (JSON.stringify(ghBooksClean()) !== JSON.stringify(data.books || [])) {
-        ghApplyRemote(data);
-        showMsg(ghDirty ? '两端都有修改，已采用 GitHub 上的版本' : '已从 GitHub 同步数据');
+      var remote = (data.books || []).filter(function (b) { return deletedIds.indexOf(b.id) < 0; });
+      if (JSON.stringify(ghBooksClean()) !== JSON.stringify(remote)) {
+        if (ghDirty) {
+          var merged = mergeBooksArr(books, remote);
+          var mch = JSON.stringify(merged) !== JSON.stringify(books);
+          books = merged;
+          localStorage.setItem(LS_KEY, JSON.stringify(books));
+          if (mch) { render(); if (obsDir) syncObsidian(); }
+          showMsg('两端都有修改，已自动合并');
+          ghDirty = true;
+          scheduleGhPush();
+        } else {
+          ghApplyRemote({ books: remote });
+          showMsg('已从 GitHub 同步数据');
+        }
       }
-      ghDirty = false;
+      if (Array.isArray(data.deleted)) {
+        data.deleted.forEach(function (id) { if (deletedIds.indexOf(id) < 0) deletedIds.push(id); });
+        localStorage.setItem('shelf-deleted', JSON.stringify(deletedIds));
+        var before = books.length;
+        books = books.filter(function (b) { return deletedIds.indexOf(b.id) < 0; });
+        if (books.length !== before) { localStorage.setItem(LS_KEY, JSON.stringify(books)); render(); }
+      }
       ghLastSync = t;
       localStorage.setItem('shelf-gh-ts', String(t));
       updateGhUI();
@@ -1179,6 +1209,11 @@ $('list').addEventListener('click', function (e) {
     var tip = obsDir ? (notesDir ? '删除书目《' + b.title + '》？（读后感文件会保留）' : '删除《' + b.title + '》？（Obsidian 中的对应笔记也会删除）') : '删除《' + b.title + '》？';
     if (confirm(tip)) {
       books = books.filter(function (x) { return x.id !== id; });
+      if (deletedIds.indexOf(id) < 0) {
+        deletedIds.push(id);
+        if (deletedIds.length > 1000) deletedIds = deletedIds.slice(-1000);
+        localStorage.setItem('shelf-deleted', JSON.stringify(deletedIds));
+      }
       save(); render(); deleteFromObsidian(b);
     }
     return;
@@ -1215,7 +1250,7 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v2.1 · 2026-09-19';
+$('appVer').textContent = 'v2.3 · 2026-09-21';
 render();
 $('isbn').focus({ preventScroll: true });
 </script>
