@@ -126,7 +126,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.3</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.4</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -172,7 +172,7 @@
       <div class="srow"><span id="ghStatus" class="off">未设置（数据只在本设备）</span></div>
       <div class="srow"><input id="gUser" placeholder="GitHub 用户名"><input id="gRepo" placeholder="数据仓库名" value="shelf-data"></div>
       <div class="srow"><input id="gToken" placeholder="Personal Access Token（classic，勾选 repo）"></div>
-      <div class="srow"><button id="btnGhSave">保存并同步</button><button id="btnGhOff" class="ghost">断开</button></div>
+      <div class="srow"><button id="btnGhSave">保存并同步</button><button id="btnGhNow" class="ghost">立即同步</button><button id="btnGhOff" class="ghost">断开</button></div>
       <div class="hint">Token 获取：GitHub 头像 → Settings → Developer settings → Personal access tokens → Tokens (classic) → 勾选 repo，生成后立即复制</div>
     </section>
     <div class="sactions"><button id="btnSettingsClose" class="ghost">关闭</button></div>
@@ -901,6 +901,14 @@ $('btnGhSave').onclick = function () {
   showMsg('正在连接 GitHub…');
   ghPush().then(ghPull);
 };
+$('btnGhNow').onclick = function () {
+  if (!ghCfg) { showMsg('请先保存同步配置'); return; }
+  showMsg('正在同步…');
+  ghPush().then(function () { ghLastSync = 0; ghPulling = false; return ghPull(); }).then(function () {
+    showMsg('同步完成 ' + new Date().toLocaleTimeString());
+  });
+};
+
 $('btnGhOff').onclick = function () {
   ghCfg = null; ghDirty = false;
   localStorage.removeItem('shelf-gh');
@@ -1250,7 +1258,13 @@ idbGet('obsDir').then(function (h) {
 }).catch(function () {});
 
 
-$('appVer').textContent = 'v2.3 · 2026-09-21';
+/* 恢复 GitHub 同步 */
+updateProxyUI();
+updateGhUI();
+if (ghCfg) ghPull();
+setInterval(function () { if (ghCfg && !document.hidden) ghPull(); }, 300000);
+
+$('appVer').textContent = 'v2.4 · 2026-09-21';
 render();
 $('isbn').focus({ preventScroll: true });
 </script>
