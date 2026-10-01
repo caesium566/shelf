@@ -126,7 +126,7 @@
 <header>
   <div>
     <h1>极简书房</h1>
-    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.4</span></div>
+    <div class="sub">ISBN 扫码入库 · 已读 / 未读 · <span id="appVer">2.5</span></div>
   </div>
   <div style="text-align:right">
     <div id="stat"></div>
@@ -632,7 +632,7 @@ function syncObsidian() {
       var counts = {};
       var seq = Promise.resolve();
       books.forEach(function (b) {
-        if (isCollection(b)) { addLog('跳过（设定集）', safeName(b.title) + '.md'); return; }
+        if (isCollection(b)) return;
         seq = seq.then(function () {
           var base = safeName((b.series && b.seriesMode !== 'single') ? b.series : (b.noteFile || b.title));
           var key = base.toLowerCase();
@@ -642,14 +642,14 @@ function syncObsidian() {
             return sub.getFileHandle(fname + '.md').then(function (fh) {
               return mergeWrite(fh, b);
             }).then(function (r) {
-              addLog(r === 'updated' ? '更新书目块' : '跳过（无正文）', fname + '.md');
-            }).catch(function () { addLog('跳过（无感想文件）', fname + '.md'); });
+              if (r === 'updated') addLog('更新书目块', fname + '.md');
+            }).catch(function () { /* 无感想文件，不记录 */ });
           }
           return sub.getFileHandle(fname + '.md', { create: true }).then(function (fh) {
             return fh.createWritable().then(function (w) {
               return w.write(bookMd(b)).then(function () { return w.close(); });
             });
-          }).then(function () { b._md = fname + '.md'; addLog('写入', '书架/' + fname + '.md'); });
+          }).then(function () { b._md = fname + '.md'; addLog('生成笔记', '书架/' + fname + '.md'); });
         });
       });
       return seq.then(function () {
@@ -1264,7 +1264,7 @@ updateGhUI();
 if (ghCfg) ghPull();
 setInterval(function () { if (ghCfg && !document.hidden) ghPull(); }, 300000);
 
-$('appVer').textContent = 'v2.4 · 2026-09-21';
+$('appVer').textContent = 'v2.5 · 2026-09-28';
 render();
 $('isbn').focus({ preventScroll: true });
 </script>
